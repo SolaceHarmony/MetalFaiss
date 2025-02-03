@@ -1,45 +1,31 @@
 import SwiftFaissC
 
 public final class AnyClustering: BaseClustering {
-    public internal(set) var indexPointer: IndexPointer
-
+    public let indexPointer: IndexPointer
+    private var parameters: ClusteringParameters
+    
+    init(indexPointer: IndexPointer, parameters: ClusteringParameters) {
+        self.indexPointer = indexPointer
+        self.parameters = parameters
+    }
+    
+    public convenience init(d: Int, k: Int, parameters: ClusteringParameters = .init()) throws {
+        var indexPtr: OpaquePointer?
+        try IndexError.check(
+            faiss_Clustering_new(
+                &indexPtr,
+                Int32(d),
+                Int32(k),
+                &parameters.faissClusteringParameters
+            )
+        )
+        self.init(indexPointer: IndexPointer(indexPtr!), parameters: parameters)
+    }
+    
     deinit {
         if isKnownUniquelyReferenced(&indexPointer) {
             faiss_Clustering_free(indexPointer.pointer)
         }
-    }
-
-    init(indexPointer: IndexPointer) {
-        self.indexPointer = indexPointer
-    }
-
-    public convenience init(d: Int, k: Int) throws {
-        let indexPtr = UnsafeMutablePointer<OpaquePointer?>.allocate(capacity: 1)
-        defer { indexPtr.deallocate() }
-        try IndexError.check(
-            faiss_Clustering_new(
-                indexPtr,
-                Int32(d),
-                Int32(k)
-            )
-        )
-        self.init(indexPointer: IndexPointer(indexPtr.pointee!))
-    }
-
-    public convenience init(d: Int, k: Int, clusteringParameters: ClusteringParameters) throws {
-        let indexPtr = UnsafeMutablePointer<OpaquePointer?>.allocate(capacity: 1)
-        defer { indexPtr.deallocate() }
-        try withUnsafePointer(to: clusteringParameters.faissClusteringParameters) { pointer in
-            try IndexError.check(
-                faiss_Clustering_new_with_params(
-                    indexPtr,
-                    Int32(d),
-                    Int32(k),
-                    pointer
-                )
-            )
-        }
-        self.init(indexPointer: IndexPointer(indexPtr.pointee!))
     }
 }
 
