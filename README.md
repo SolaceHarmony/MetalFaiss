@@ -115,3 +115,7 @@ $ pip install -r requirements.txt
 ```
 $ python3 <script_name>.py <options>
 ```
+
+### Note
+
+The Python implementation now uses MLX routines instead of NumPy for array and tensor operations.
