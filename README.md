@@ -77,3 +77,41 @@ $ swift test
 
 - [Faiss: The Missing Manual](https://www.pinecone.io/learn/series/faiss/)
 - [Faiss C API](https://github.com/facebookresearch/faiss/blob/main/c_api/INSTALL.md)
+
+## Python Implementation
+
+### Usage
+
+Command line demo
+
+```
+$ python3 <script_name>.py <options>
+```
+
+Available scripts:
+
+- `Clustering.py`: create a k-means clustering model, train it, and predict clusters.
+- `FlatIndex.py`: create a `FlatIndex`, add vectors to it, and search for the most similar vectors.
+- `IVFFlatIndex.py`: create an `IVFFlatIndex`, train and add vectors to it, and search for the most similar vectors.
+- `PQIndex.py`: create a `PQIndex`, train and add vectors to it, and search for the most similar vectors.
+
+### Installation
+
+1. Clone the repository:
+
+```
+$ git clone https://github.com/sydneyrenee/MetalFaiss.git
+$ cd MetalFaiss
+```
+
+2. Install the required dependencies:
+
+```
+$ pip install -r requirements.txt
+```
+
+3. Run the desired script:
+
+```
+$ python3 <script_name>.py <options>
+```
