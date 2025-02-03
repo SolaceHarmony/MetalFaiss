@@ -1,4 +1,4 @@
-import numpy as np
+import mlx
 import metal
 
 class FlatIndex:
@@ -11,13 +11,13 @@ class FlatIndex:
         self.vectors.extend(vectors)
 
     def search(self, query, k):
-        query = np.array(query, dtype=np.float32)
-        vectors = np.array(self.vectors, dtype=np.float32)
+        query = mlx.array(query, dtype=np.float32)
+        vectors = mlx.array(self.vectors, dtype=np.float32)
         if self.metric_type == 'l2':
-            distances = np.linalg.norm(vectors - query, axis=1)
+            distances = mlx.linalg.norm(vectors - query, axis=1)
         elif self.metric_type == 'inner_product':
-            distances = -np.dot(vectors, query)
+            distances = -mlx.dot(vectors, query)
         else:
             raise ValueError(f"Unsupported metric type: {self.metric_type}")
-        indices = np.argsort(distances)[:k]
+        indices = mlx.argsort(distances)[:k]
         return indices, distances[indices]
