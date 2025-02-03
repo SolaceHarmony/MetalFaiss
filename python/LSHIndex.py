@@ -1,4 +1,3 @@
-import numpy as np
 import mlx
 import metal
 
@@ -12,11 +11,11 @@ class LSHIndex:
         self.hash_table = {}
 
     def _generate_hash_functions(self):
-        np.random.seed(0)
-        return [np.random.randn(self.d) for _ in range(self.nbits)]
+        mlx.random.seed(0)
+        return [mlx.core.eval.random.randn(self.d) for _ in range(self.nbits)]
 
     def _hash_vector(self, vector):
-        return tuple((np.dot(vector, h) > 0).astype(int) for h in self.hash_functions)
+        return tuple((mlx.core.eval.dot(vector, h) > 0).astype(int) for h in self.hash_functions)
 
     def add(self, vectors):
         for vector in vectors:
@@ -31,10 +30,10 @@ class LSHIndex:
         if self.rotate_data:
             query = self._rotate_vector(query)
             candidates = [self._rotate_vector(c) for c in candidates]
-        distances = [np.linalg.norm(query - c) for c in candidates]
-        indices = np.argsort(distances)[:k]
+        distances = [mlx.core.eval.linalg.norm(query - c) for c in candidates]
+        indices = mlx.core.eval.argsort(distances)[:k]
         return indices, [distances[i] for i in indices]
 
     def _rotate_vector(self, vector):
-        rotation_matrix = np.random.randn(self.d, self.d)
-        return np.dot(vector, rotation_matrix)
+        rotation_matrix = mlx.core.eval.random.randn(self.d, self.d)
+        return mlx.core.eval.dot(vector, rotation_matrix)
