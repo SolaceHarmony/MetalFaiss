@@ -1,4 +1,3 @@
-import numpy as np
 import mlx
 import metal
 
@@ -35,7 +34,7 @@ class CenteringTransform(BaseVectorTransform):
         self.mean = None
 
     def train(self, xs):
-        self.mean = np.mean(xs, axis=0)
+        self.mean = mlx.core.eval.mean(xs, axis=0)
         self.is_trained = True
 
     def apply(self, xs):
@@ -54,18 +53,18 @@ class ITQMatrixTransform(BaseLinearTransform):
         self.rotation_matrix = None
 
     def train(self, xs):
-        self.rotation_matrix = np.random.randn(self.d_in, self.d_out)
+        self.rotation_matrix = mlx.core.eval.random.randn(self.d_in, self.d_out)
         self.is_trained = True
 
     def apply(self, xs):
         if not self.is_trained:
             raise ValueError("Transform not trained")
-        return np.dot(xs, self.rotation_matrix)
+        return mlx.core.eval.dot(xs, self.rotation_matrix)
 
     def reverse_transform(self, xs):
         if not self.is_trained:
             raise ValueError("Transform not trained")
-        return np.dot(xs, np.linalg.pinv(self.rotation_matrix))
+        return mlx.core.eval.dot(xs, mlx.core.eval.linalg.pinv(self.rotation_matrix))
 
 class ITQTransform(BaseVectorTransform):
     def __init__(self, d_in, d_out, do_pca):
@@ -76,24 +75,24 @@ class ITQTransform(BaseVectorTransform):
 
     def train(self, xs):
         if self.do_pca:
-            self.pca_matrix = np.random.randn(self.d_in, self.d_out)
-            xs = np.dot(xs, self.pca_matrix)
-        self.rotation_matrix = np.random.randn(self.d_out, self.d_out)
+            self.pca_matrix = mlx.core.eval.random.randn(self.d_in, self.d_out)
+            xs = mlx.core.eval.dot(xs, self.pca_matrix)
+        self.rotation_matrix = mlx.core.eval.random.randn(self.d_out, self.d_out)
         self.is_trained = True
 
     def apply(self, xs):
         if not self.is_trained:
             raise ValueError("Transform not trained")
         if self.do_pca:
-            xs = np.dot(xs, self.pca_matrix)
-        return np.dot(xs, self.rotation_matrix)
+            xs = mlx.core.eval.dot(xs, self.pca_matrix)
+        return mlx.core.eval.dot(xs, self.rotation_matrix)
 
     def reverse_transform(self, xs):
         if not self.is_trained:
             raise ValueError("Transform not trained")
-        xs = np.dot(xs, np.linalg.pinv(self.rotation_matrix))
+        xs = mlx.core.eval.dot(xs, mlx.core.eval.linalg.pinv(self.rotation_matrix))
         if self.do_pca:
-            xs = np.dot(xs, np.linalg.pinv(self.pca_matrix))
+            xs = mlx.core.eval.dot(xs, mlx.core.eval.linalg.pinv(self.pca_matrix))
         return xs
 
 class NormalizationTransform(BaseVectorTransform):
@@ -102,11 +101,11 @@ class NormalizationTransform(BaseVectorTransform):
         self.norm = norm
 
     def apply(self, xs):
-        norms = np.linalg.norm(xs, axis=1, keepdims=True)
+        norms = mlx.core.eval.linalg.norm(xs, axis=1, keepdims=True)
         return xs / norms * self.norm
 
     def reverse_transform(self, xs):
-        norms = np.linalg.norm(xs, axis=1, keepdims=True)
+        norms = mlx.core.eval.linalg.norm(xs, axis=1, keepdims=True)
         return xs / self.norm * norms
 
 class OPQMatrixTransform(BaseLinearTransform):
@@ -118,18 +117,18 @@ class OPQMatrixTransform(BaseLinearTransform):
         self.opq_matrix = None
 
     def train(self, xs):
-        self.opq_matrix = np.random.randn(self.d_in, self.d_out)
+        self.opq_matrix = mlx.core.eval.random.randn(self.d_in, self.d_out)
         self.is_trained = True
 
     def apply(self, xs):
         if not self.is_trained:
             raise ValueError("Transform not trained")
-        return np.dot(xs, self.opq_matrix)
+        return mlx.core.eval.dot(xs, self.opq_matrix)
 
     def reverse_transform(self, xs):
         if not self.is_trained:
             raise ValueError("Transform not trained")
-        return np.dot(xs, np.linalg.pinv(self.opq_matrix))
+        return mlx.core.eval.dot(xs, mlx.core.eval.linalg.pinv(self.opq_matrix))
 
 class PCAMatrixTransform(BaseLinearTransform):
     def __init__(self, d_in, d_out, eigen_power, random_rotation):
@@ -139,18 +138,18 @@ class PCAMatrixTransform(BaseLinearTransform):
         self.pca_matrix = None
 
     def train(self, xs):
-        self.pca_matrix = np.random.randn(self.d_in, self.d_out)
+        self.pca_matrix = mlx.core.eval.random.randn(self.d_in, self.d_out)
         self.is_trained = True
 
     def apply(self, xs):
         if not self.is_trained:
             raise ValueError("Transform not trained")
-        return np.dot(xs, self.pca_matrix)
+        return mlx.core.eval.dot(xs, self.pca_matrix)
 
     def reverse_transform(self, xs):
         if not self.is_trained:
             raise ValueError("Transform not trained")
-        return np.dot(xs, np.linalg.pinv(self.pca_matrix))
+        return mlx.core.eval.dot(xs, mlx.core.eval.linalg.pinv(self.pca_matrix))
 
 class RandomRotationMatrixTransform(BaseLinearTransform):
     def __init__(self, d_in, d_out):
@@ -158,18 +157,18 @@ class RandomRotationMatrixTransform(BaseLinearTransform):
         self.rotation_matrix = None
 
     def train(self, xs):
-        self.rotation_matrix = np.random.randn(self.d_in, self.d_out)
+        self.rotation_matrix = mlx.core.eval.random.randn(self.d_in, self.d_out)
         self.is_trained = True
 
     def apply(self, xs):
         if not self.is_trained:
             raise ValueError("Transform not trained")
-        return np.dot(xs, self.rotation_matrix)
+        return mlx.core.eval.dot(xs, self.rotation_matrix)
 
     def reverse_transform(self, xs):
         if not self.is_trained:
             raise ValueError("Transform not trained")
-        return np.dot(xs, np.linalg.pinv(self.rotation_matrix))
+        return mlx.core.eval.dot(xs, mlx.core.eval.linalg.pinv(self.rotation_matrix))
 
 class RemapDimensionsTransform(BaseVectorTransform):
     def __init__(self, d_in, d_out, uniform):
@@ -178,15 +177,15 @@ class RemapDimensionsTransform(BaseVectorTransform):
         self.remap_matrix = None
 
     def train(self, xs):
-        self.remap_matrix = np.random.randn(self.d_in, self.d_out)
+        self.remap_matrix = mlx.core.eval.random.randn(self.d_in, self.d_out)
         self.is_trained = True
 
     def apply(self, xs):
         if not self.is_trained:
             raise ValueError("Transform not trained")
-        return np.dot(xs, self.remap_matrix)
+        return mlx.core.eval.dot(xs, self.remap_matrix)
 
     def reverse_transform(self, xs):
         if not self.is_trained:
             raise ValueError("Transform not trained")
-        return np.dot(xs, np.linalg.pinv(self.remap_matrix))
+        return mlx.core.eval.dot(xs, mlx.core.eval.linalg.pinv(self.remap_matrix))
