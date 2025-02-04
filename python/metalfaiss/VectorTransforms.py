@@ -1,6 +1,6 @@
 import mlx.core as mx
 import numpy as np
-from .vector_transform.BaseVectorTransform import BaseVectorTransform
+from .vector_transform import BaseVectorTransform
 
 class CenteringTransform(BaseVectorTransform):
     def __init__(self, d):

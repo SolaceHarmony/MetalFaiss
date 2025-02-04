@@ -8,7 +8,7 @@ from typing import List, Optional, Tuple
 
 from ..metric_type import MetricType
 from ..search_result import SearchResult  # Assume a SearchResult class exists in the project.
-from .distances import pairwise_L2sqr  # A function to compute pairwise L2 squared distances.
+from .distances import pairwise_L2sqr  # A function to compute pairwise squared L2 distances.
 
 class FlatIndex:
     """
@@ -21,7 +21,7 @@ class FlatIndex:
         self.ntotal = 0
         # xb will store the database vectors as an MLX array of shape (ntotal, d)
         self.xb: Optional[mx.array] = None
-        # Optional: store IDs for the vectors. If not provided, we generate sequential IDs.
+        # Optional: store IDs for the vectors. If not provided, sequential IDs are used.
         self.ids: Optional[mx.array] = None
 
     def train(self, xs: List[List[float]]) -> None:
@@ -38,7 +38,7 @@ class FlatIndex:
             xs: A list of vectors (each a list of floats).
             ids: Optional list of integer IDs. If not provided, sequential IDs are used.
         """
-        # Convert the list of vectors to an MLX array (which uses NumPy under the hood)
+        # Convert the list of vectors to an MLX array
         new_vectors = mx.array(xs, dtype=mx.float32)
         n_new = new_vectors.shape[0]
         if self.xb is None:
@@ -75,30 +75,24 @@ class FlatIndex:
         xq = mx.array(xs, dtype=mx.float32)
         # Compute pairwise distances based on the metric type.
         if self.metric_type == MetricType.L2:
-            # Compute pairwise squared L2 distances.
             distances = pairwise_L2sqr(xq, self.xb)
         elif self.metric_type == MetricType.INNER_PRODUCT:
-            # For inner product, higher is better. We return negative inner product as distances.
+            # For inner product, higher is better.
             distances = -mx.matmul(xq, self.xb.T)
         elif self.metric_type == MetricType.L1:
-            # Compute L1 distances via broadcasting.
             distances = mx.sum(mx.abs(xq.reshape((len(xq), 1, -1)) - self.xb), axis=2)
         elif self.metric_type == MetricType.LINF:
-            # Compute L-inf distances via broadcasting.
             distances = mx.max(mx.abs(xq.reshape((len(xq), 1, -1)) - self.xb), axis=2)
         else:
             raise ValueError(f"Unsupported metric type: {self.metric_type}")
         
-        # Use MLX’s topk function to retrieve k smallest distances for L2 (or largest inner product)
-        # Note: For inner product, since we negated the values, we retrieve the top k values.
+        # Use MLX's topk function to retrieve k neighbors.
         if self.metric_type == MetricType.INNER_PRODUCT:
             values, indices = mx.topk(distances, k, axis=1)
         else:
-            # For metrics where lower is better (L2, L1, Linf), we negate distances, take topk, then negate back.
             neg_distances = -distances
             values, indices = mx.topk(neg_distances, k, axis=1)
             values = -values
-        
         # Map indices to the stored IDs.
         selected_ids = mx.take(self.ids, indices, axis=0)
         return SearchResult(distances=values, labels=selected_ids)
@@ -115,7 +109,6 @@ class FlatIndex:
         """
         if self.xb is None or key < 0 or key >= self.ntotal:
             raise ValueError("Invalid key for reconstruction.")
-        # Convert the row to a NumPy array and then to a list.
         return self.xb[key].asnumpy().tolist()
 
     def reset(self) -> None:
@@ -143,3 +136,44 @@ class FlatIndex:
             new_index.ids = mx.copy(self.ids)
             new_index.ntotal = self.ntotal
         return new_index
+
+if __name__ == "__main__":
+    # Test FlatIndex functionality.
+    import random
+
+    # Set dimension and create random vectors.
+    d = 4
+    num_vectors = 10
+    num_queries = 3
+    data = [[random.random() for _ in range(d)] for _ in range(num_vectors)]
+    queries = [[random.random() for _ in range(d)] for _ in range(num_queries)]
+    
+    # Create a FlatIndex with L2 metric.
+    index = FlatIndex(d=d, metric_type=MetricType.L2)
+    # Training is a no-op for FlatIndex.
+    index.train(data)
+    # Add the vectors to the index.
+    index.add(data)
+    print("Total vectors in index:", index.ntotal)
+    
+    # Perform a search for k nearest neighbors.
+    k = 3
+    result = index.search(queries, k=k)
+    print("Search Results:")
+    print("Distances:")
+    print(result.distances)
+    print("Labels (IDs):")
+    print(result.labels)
+    
+    # Test reconstruction of a stored vector.
+    key = 5
+    try:
+        reconstructed = index.reconstruct(key)
+        print(f"Reconstructed vector at key {key}:")
+        print(reconstructed)
+    except ValueError as e:
+        print(f"Error in reconstruction: {e}")
+    
+    # Reset the index.
+    index.reset()
+    print("Index reset. Total vectors:", index.ntotal)
