@@ -1,4 +1,31 @@
-import mlx.core as mx
+try:
+    import mlx.core as mx
+    _HAS_MLX = True
+except ImportError:
+    _HAS_MLX = False
+    # Mock MLX functionality with numpy
+    import numpy as np
+    
+    class MockMLX:
+        @staticmethod
+        def array(data, dtype=None):
+            return np.array(data, dtype=dtype)
+        
+        @staticmethod  
+        def eval(x):
+            return x
+            
+        @staticmethod
+        def where(condition):
+            return [np.where(condition)]
+            
+        class linalg:
+            @staticmethod
+            def norm(x, axis=None):
+                return np.linalg.norm(x, axis=axis)
+    
+    mx = MockMLX()
+
 import numpy as np
 
 class SearchRangeResult:
