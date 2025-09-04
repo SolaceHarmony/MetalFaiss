@@ -1,6 +1,9 @@
 from __future__ import annotations  # Added for forward refs
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, TYPE_CHECKING
 import numpy as np
+
+if TYPE_CHECKING:
+    from .index import Index
 
 class RangeSearchResult:
     """Container for range search results that minimizes memory copies."""
@@ -165,3 +168,40 @@ class RangeSearchPartialResult(BufferList):
                 self.res.labels[start:start + n],
                 self.res.distances[start:start + n]
             )
+
+
+def range_search_with_index(index: 'Index', xs: List[List[float]], radius: float) -> RangeSearchResult:
+    """Default implementation of range search using regular index search.
+    
+    Args:
+        index: The index to search
+        xs: Query vectors
+        radius: Search radius
+        
+    Returns:
+        Range search results
+    """
+    nq = len(xs)
+    result = RangeSearchResult(nq)
+    partial_result = RangeSearchPartialResult(result)
+    
+    # Use a reasonable k for initial search
+    k = min(100, index.ntotal) if hasattr(index, 'ntotal') else 100
+    
+    # For each query, search and filter by radius
+    for i, query in enumerate(xs):
+        qres = partial_result.new_result(i)
+        
+        # Perform regular kNN search
+        search_result = index.search([query], k)
+        distances = search_result.distances[0]
+        labels = search_result.labels[0]
+        
+        # Filter results within radius
+        for d, label in zip(distances, labels):
+            if d <= radius and label != -1:
+                qres.add(d, label)
+    
+    # Finalize and copy results
+    partial_result.copy_result()
+    return result

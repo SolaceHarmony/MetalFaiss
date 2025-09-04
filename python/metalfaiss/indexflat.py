@@ -2,7 +2,75 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # Licensed under the MIT license (see LICENSE file in root directory).
 
-import mlx.core as mx
+try:
+    import mlx.core as mx
+    _HAS_MLX = True
+except ImportError:
+    _HAS_MLX = False
+    # Mock MLX functionality with numpy
+    import numpy as np
+    
+    class MockMLX:
+        @staticmethod
+        def array(data, dtype=None):
+            return np.array(data, dtype=dtype if dtype != mx.float32 else np.float32)
+        
+        @staticmethod  
+        def eval(*args):
+            return args[0] if len(args) == 1 else args
+            
+        @staticmethod
+        def concatenate(arrays, axis=0):
+            return np.concatenate(arrays, axis=axis)
+            
+        @staticmethod
+        def arange(n, dtype=None):
+            return np.arange(n, dtype=dtype)
+            
+        @staticmethod
+        def matmul(a, b):
+            return np.matmul(a, b)
+            
+        @staticmethod
+        def topk(arr, k, axis=-1):
+            indices = np.argpartition(-arr, k-1, axis=axis)
+            if axis == 1:
+                indices = indices[:, :k]
+                values = np.take_along_axis(arr, indices, axis=axis)
+            else:
+                indices = indices[:k]
+                values = arr[indices]
+            return values, indices
+            
+        @staticmethod 
+        def take(arr, indices, axis=0):
+            return np.take(arr, indices, axis=axis)
+            
+        @staticmethod
+        def sum(arr, axis=None, keepdims=False):
+            return np.sum(arr, axis=axis, keepdims=keepdims)
+            
+        @staticmethod
+        def abs(arr):
+            return np.abs(arr)
+            
+        @staticmethod
+        def max(arr, axis=None):
+            return np.max(arr, axis=axis)
+            
+        @staticmethod
+        def copy(arr):
+            return np.copy(arr)
+            
+        @staticmethod
+        def save(arr, filename):
+            np.save(filename, arr)
+
+        float32 = np.float32
+        int64 = np.int64
+    
+    mx = MockMLX()
+
 import numpy as np
 from typing import List, Optional, Tuple
 
@@ -116,7 +184,10 @@ class FlatIndex:
         if self.xb is None or key < 0 or key >= self.ntotal:
             raise ValueError("Invalid key for reconstruction.")
         # Convert the row to a NumPy array and then to a list.
-        return self.xb[key].asnumpy().tolist()
+        if _HAS_MLX and hasattr(self.xb[key], 'asnumpy'):
+            return self.xb[key].asnumpy().tolist()
+        else:
+            return self.xb[key].tolist()
 
     def reset(self) -> None:
         """
