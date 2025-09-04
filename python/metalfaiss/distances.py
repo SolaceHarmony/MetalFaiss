@@ -10,7 +10,57 @@ function that computes the full distance matrix between a query set and a databa
 """
 
 import math
-import mlx.core as mx
+
+try:
+    import mlx.core as mx
+    _HAS_MLX = True
+except ImportError:
+    _HAS_MLX = False
+    # Mock MLX functionality with numpy
+    import numpy as np
+    
+    class MockMLX:
+        @staticmethod
+        def array(data, dtype=None):
+            return np.array(data, dtype=dtype)
+        
+        @staticmethod  
+        def dot(a, b):
+            return np.dot(a, b)
+            
+        @staticmethod
+        def sum(arr, axis=None, keepdims=False):
+            return np.sum(arr, axis=axis, keepdims=keepdims)
+            
+        @staticmethod
+        def abs(arr):
+            return np.abs(arr)
+            
+        @staticmethod
+        def max(arr, axis=None):
+            return np.max(arr, axis=axis)
+            
+        @staticmethod
+        def matmul(a, b):
+            return np.matmul(a, b)
+            
+        @staticmethod
+        def maximum(a, b):
+            return np.maximum(a, b)
+            
+        @staticmethod
+        def transpose(arr):
+            return np.transpose(arr)
+            
+        @staticmethod
+        def sqrt(arr):
+            return np.sqrt(arr)
+            
+        @staticmethod
+        def where(condition, x, y):
+            return np.where(condition, x, y)
+    
+    mx = MockMLX()
 
 ###############################################################################
 # Basic Distance Functions

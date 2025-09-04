@@ -1,13 +1,55 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # This source code is licensed under the MIT license found in the LICENSE file.
 
-import mlx.core as mx
+try:
+    import mlx.core as mx
+    _HAS_MLX = True
+except ImportError:
+    _HAS_MLX = False
+    # Mock MLX functionality with numpy
+    import numpy as np
+    
+    class MockMLX:
+        @staticmethod
+        def array(data, dtype=None):
+            return np.array(data, dtype=dtype)
+        
+        @staticmethod
+        def matmul(a, b):
+            return np.matmul(a, b)
+            
+        @staticmethod
+        def sum(arr, axis=None, keepdims=False):
+            return np.sum(arr, axis=axis, keepdims=keepdims)
+            
+        @staticmethod
+        def abs(arr):
+            return np.abs(arr)
+            
+        @staticmethod
+        def max(arr, axis=None):
+            return np.max(arr, axis=axis)
+            
+        @staticmethod
+        def topk(arr, k, axis=-1):
+            if axis == 1:
+                indices = np.argpartition(-arr, k-1, axis=axis)[:, :k]
+                values = np.take_along_axis(arr, indices, axis=axis)
+            else:
+                indices = np.argpartition(-arr, k-1, axis=axis)[:k]
+                values = arr[indices]
+            return values, indices
+    
+    mx = MockMLX()
+
 import numpy as np
 from typing import Optional, Tuple
 
 from .metric_type import MetricType
 from .distances import pairwise_L2sqr
-from .heap import float_maxheap_array_t
+
+# TODO: Import heap functionality when needed
+# from .heap import float_maxheap_array_t
 
 # TODO: Review implementations from:
 # ✓ faiss/utils/extra_distances.h (interface)
