@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from ..index_pointer import IndexPointer
 from .base_clustering import BaseClustering
 from .clustering_parameters import ClusteringParameters
-from ..base_index import BaseIndex
+from ..index.base_index import BaseIndex
 
 @dataclass
 class ClusteringParameters:

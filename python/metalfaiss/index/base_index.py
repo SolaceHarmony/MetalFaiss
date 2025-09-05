@@ -1,198 +1,79 @@
-from abc import ABC, abstractmethod, abstractproperty
+"""
+base_index.py - Base class for all indices
+"""
+
+from ..utils.search_result import SearchResult, SearchRangeResult
+from ..types.metric_type import MetricType
+from typing import Optional, List, Tuple, Union
+import numpy as np
 import mlx.core as mx
-from typing import List, Tuple, Optional, Union
-from .search_result import SearchResult, SearchRangeResult
-from ..errors import IndexError
-from ..metric_type import MetricType
-from ..index_pointer import IndexPointer
 
-class BaseIndex(ABC):
-    """Base class for all index types.
+class BaseIndex:
+    """Base class for all indices."""
     
-    This abstract class defines the interface that all index implementations must support.
-    It provides basic functionality for vector storage, searching, and management.
-    """
-    
-    @abstractmethod
-    def index_pointer(self) -> IndexPointer:
-        """The underlying index pointer. Required property matching Swift protocol."""
-        pass
-
-    def __init__(self, d: int):
-        """Initialize index.
+    def __init__(self, d: int, metric: MetricType = MetricType.L2):
+        """Initialize base index.
         
         Args:
-            d: Dimension of vectors to be indexed
+            d: Dimension of vectors
+            metric: Distance metric to use
         """
-        self._d = d
-        self._is_trained = False
-        self._ntotal = 0
-        self._metric_type = MetricType.L2
-        self._verbose = False
+        self.d = d
+        self.metric = metric
+        self.is_trained = False
+        self.ntotal = 0
         
-    @property
-    @abstractmethod
-    def d(self) -> int:
-        """Dimension of vectors in the index."""
-        pass
-        
-    @property
-    def is_trained(self) -> bool:
-        """Whether the index has been trained."""
-        return self._is_trained
-        
-    @property
-    def ntotal(self) -> int:
-        """Total number of vectors in the index."""
-        return self._ntotal
-        
-    @property
-    def metric_type(self) -> MetricType:
-        """Distance metric used by the index."""
-        return self._metric_type
-        
-    @property
-    def verbose(self) -> bool:
-        """Whether to output verbose logging."""
-        return self._verbose
-        
-    @verbose.setter
-    def verbose(self, value: bool) -> None:
-        self._verbose = value
-        
-    def assign(self, xs: List[List[float]], k: int) -> List[List[int]]:
-        """Assign vectors to nearest centroids.
-        
-        Args:
-            xs: Query vectors
-            k: Number of assignments per vector
-            
-        Returns:
-            List of k nearest centroid indices per vector
-            
-        Raises:
-            IndexError: If assignment fails
-        """
-        raise NotImplementedError("assign not implemented")
-        
-    @abstractmethod
-    def train(self, xs: List[List[float]]) -> None:
+    def train(self, x: mx.array) -> None:
         """Train the index.
         
         Args:
-            xs: Training vectors
-            
-        Raises:
-            IndexError: If training fails
-            ValueError: If input dimensions don't match
+            x: Training vectors (n, d)
         """
-        if not xs:
-            raise ValueError("Empty training data")
-        x = mx.array(xs, dtype=mx.float32)
         if x.shape[1] != self.d:
-            raise ValueError(f"Data dimension {x.shape[1]} does not match index dimension {self.d}")
+            raise ValueError(f"Training vectors dimension {x.shape[1]} != index dimension {self.d}")
+        self.is_trained = True
         
-    @abstractmethod
-    def add(self, xs: List[List[float]], ids: Optional[List[int]] = None) -> None:
+    def add(self, x: mx.array) -> None:
         """Add vectors to the index.
         
         Args:
-            xs: Vectors to add
-            ids: Optional vector IDs
-            
-        Raises:
-            IndexError: If addition fails
-            RuntimeError: If index is not trained
+            x: Vectors to add (n, d)
         """
         if not self.is_trained:
             raise RuntimeError("Index must be trained before adding vectors")
-        x = mx.array(xs, dtype=mx.float32)
         if x.shape[1] != self.d:
-            raise ValueError(f"Data dimension {x.shape[1]} does not match index dimension {self.d}")
-        self._ntotal += len(x)
+            raise ValueError(f"Vector dimension {x.shape[1]} != index dimension {self.d}")
+        self.ntotal += x.shape[0]
         
-    @abstractmethod
-    def search(self, xs: List[List[float]], k: int) -> SearchResult:
+    def search(self, x: mx.array, k: int) -> Tuple[mx.array, mx.array]:
         """Search for nearest neighbors.
         
         Args:
-            xs: Query vectors
-            k: Number of nearest neighbors to return
+            x: Query vectors (n, d)
+            k: Number of nearest neighbors
             
         Returns:
-            SearchResult containing distances and labels
-            
-        Raises:
-            IndexError: If search fails
+            distances: Distances to nearest neighbors (n, k)
+            indices: Indices of nearest neighbors (n, k)
         """
-        pass
+        raise NotImplementedError
         
-    def search_range(self, xs: List[List[float]], radius: float) -> SearchRangeResult:
+    def range_search(self, x: mx.array, radius: float) -> SearchRangeResult:
         """Search for vectors within radius.
         
         Args:
-            xs: Query vectors
+            x: Query vectors (n, d)
             radius: Search radius
             
         Returns:
-            SearchRangeResult containing matches within radius
-            
-        Raises:
-            IndexError: If search fails
+            SearchRangeResult containing distances and indices
         """
-        raise NotImplementedError("search_range not implemented")
-        
-    def reconstruct(self, key: int) -> List[float]:
-        """Reconstruct vector from storage.
-        
-        Args:
-            key: Vector ID to reconstruct
-            
-        Returns:
-            Reconstructed vector
-            
-        Raises:
-            NotImplementedError: If reconstruction not supported
-        """
-        raise NotImplementedError("reconstruct not implemented")
-        
-    def remove_ids(self, ids: Union[List[int], range]) -> int:
-        """Remove vectors by ID or range.
-        
-        Args:
-            ids: Vector IDs to remove
-            
-        Returns:
-            Number of vectors removed
-            
-        Raises:
-            NotImplementedError: If removal not supported
-        """
-        raise NotImplementedError("remove_ids not implemented")
+        raise NotImplementedError
         
     def reset(self) -> None:
-        """Remove all vectors from the index."""
-        self._ntotal = 0
-        self._is_trained = False
+        """Reset the index."""
+        self.ntotal = 0
         
-    def save_to_file(self, filename: str) -> None:
-        """Save index to file.
-        
-        Args:
-            filename: Path to save the index
-            
-        Raises:
-            IndexError: If save fails
-        """
-        raise NotImplementedError("save_to_file not implemented")
-        
-    def clone(self) -> 'BaseIndex':
-        """Create a deep copy of the index.
-        
-        Returns:
-            New index instance with same data
-            
-        Raises:
-            IndexError: If clone fails
-        """
-        raise NotImplementedError("clone not implemented")
+    def __len__(self) -> int:
+        """Get number of vectors in index."""
+        return self.ntotal

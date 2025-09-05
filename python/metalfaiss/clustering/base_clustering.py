@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import List, Optional
 import mlx.core as mx
-from ..base_index import BaseIndex
+from ..index.base_index import BaseIndex
 from ..index_pointer import IndexPointer
 
 class BaseClustering(ABC):

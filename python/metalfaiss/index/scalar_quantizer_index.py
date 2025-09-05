@@ -1,44 +1,111 @@
+"""
+scalar_quantizer_index.py - Index with scalar quantization of vectors
+"""
+
+from typing import List, Optional
 import mlx.core as mx
-import numpy as np
-from .index.BaseIndex import BaseIndex
-from ..Errors import TrainingError
+from .base_index import BaseIndex
+from ..types.metric_type import MetricType
+from ..utils.search_result import SearchResult
+from ..index.index_error import IndexError, TrainingError
 
 class ScalarQuantizerIndex(BaseIndex):
+    """Index that uses scalar quantization for vector compression."""
+    
     def __init__(self, d: int, qtype: str = 'QT_8bit'):
-        self.d = d
-        self.qtype = qtype
-        self._is_trained = False
-        self.vmin = None
-        self.vmax = None
-        self.vectors = []
+        """Initialize scalar quantizer index.
         
-    def train(self, vectors):
-        vectors = mx.array(vectors, dtype=mx.float32)
-        if len(vectors) == 0:
-            raise TrainingError("Cannot train on empty dataset")
-            
-        # Compute range for quantization
-        self.vmin = mx.min(vectors, axis=0)
-        self.vmax = mx.max(vectors, axis=0)
-        self._is_trained = True
-
-    def add(self, vectors):
-        vectors = mx.array(vectors, dtype=mx.float32)
-        # Quantize and store vectors
-        scale = (self.vmax - self.vmin) / 255
-        quantized = mx.floor((vectors - self.vmin) / scale)
-        self.vectors.extend(quantized)
-
-    def search(self, query, k):
-        query = mx.array(query, dtype=mx.float32)
-        if len(self.vectors) == 0:
-            return mx.array([], dtype=mx.int32), mx.array([], dtype=mx.float32)
-            
-        # Dequantize and compute distances
-        scale = (self.vmax - self.vmin) / 255
-        reconstructed = self.vmin + scale * mx.array(self.vectors)
-        distances = mx.linalg.norm(query[:, None, :] - reconstructed, axis=2)
+        Args:
+            d: Vector dimension
+            qtype: Quantizer type ('QT_8bit', 'QT_4bit', etc.)
+        """
+        super().__init__(d)
+        self._qtype = qtype
+        self._trained_vectors = None
+        self._codes = None
         
-        indices = mx.argsort(distances, axis=1)[:, :k]
-        final_distances = mx.take_along_axis(distances, indices, axis=1)
-        return indices, final_distances
+    def train(self, xs: List[List[float]]) -> None:
+        """Train the scalar quantizer.
+        
+        Args:
+            xs: Training vectors
+            
+        Raises:
+            TrainingError: If training fails
+        """
+        if not xs:
+            raise ValueError("Empty training data")
+            
+        x = mx.array(xs, dtype=mx.float32)
+        if x.shape[1] != self.d:
+            raise ValueError(f"Data dimension {x.shape[1]} does not match index dimension {self.d}")
+            
+        try:
+            # Store training vectors for computing quantization parameters
+            self._trained_vectors = x
+            self._is_trained = True
+        except Exception as e:
+            raise TrainingError(f"Failed to train scalar quantizer: {e}")
+        
+    def add(self, xs: List[List[float]], ids: Optional[List[int]] = None) -> None:
+        """Add and quantize vectors.
+        
+        Args:
+            xs: Vectors to add
+            ids: Optional vector IDs
+        """
+        if not self.is_trained:
+            raise RuntimeError("Index must be trained before adding vectors")
+            
+        x = mx.array(xs, dtype=mx.float32)
+        if x.shape[1] != self.d:
+            raise ValueError(f"Data dimension {x.shape[1]} does not match index dimension {self.d}")
+            
+        # TODO: Implement actual scalar quantization
+        # For now, just store the raw vectors
+        if self._codes is None:
+            self._codes = x
+        else:
+            self._codes = mx.concatenate([self._codes, x])
+            
+        self._ntotal += len(x)
+        
+    def search(self, xs: List[List[float]], k: int) -> SearchResult:
+        """Search for nearest neighbors.
+        
+        Args:
+            xs: Query vectors
+            k: Number of nearest neighbors
+            
+        Returns:
+            SearchResult containing distances and labels
+        """
+        if self._codes is None:
+            raise RuntimeError("Index is empty")
+            
+        x = mx.array(xs, dtype=mx.float32)
+        if x.shape[1] != self.d:
+            raise ValueError(f"Query dimension {x.shape[1]} does not match index dimension {self.d}")
+            
+        k = min(k, self.ntotal)
+        
+        # TODO: Implement efficient distance computation with quantized vectors
+        # For now, compute exact distances
+        if self.metric_type == MetricType.L2:
+            distances = mx.sum((x.reshape(len(x), 1, -1) - self._codes) ** 2, axis=2)
+        else:
+            distances = -mx.matmul(x, self._codes.T)
+            
+        values, indices = mx.topk(-distances, k, axis=1)
+        values = -values
+            
+        return SearchResult(
+            distances=values.tolist(),
+            labels=indices.tolist()
+        )
+        
+    def reset(self) -> None:
+        """Reset the index."""
+        super().reset()
+        self._codes = None
+        self._trained_vectors = None

@@ -1,6 +1,6 @@
 import mlx.core as mx
 import numpy as np
-from .index.BaseIndex import BaseIndex
+from ..index import BaseIndex
 
 class LSHIndex(BaseIndex):
     def __init__(self, d: int, nbits: int = 64):

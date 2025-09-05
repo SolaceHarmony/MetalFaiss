@@ -1,55 +1,57 @@
+"""
+ivf_flat_index.py - IVF index with flat storage of vectors
+"""
+
 from typing import List, Optional
 import mlx.core as mx
 from .base_index import BaseIndex
 from .flat_index import FlatIndex
-from .search_result import SearchResult
-from ..metric_type import MetricType
-from ..errors import IndexError
+from ..types.metric_type import MetricType
+from ..utils.search_result import SearchResult
+from ..index.index_error import IndexError
 
 class IVFFlatIndex(BaseIndex):
-    def __init__(self, 
-                 quantizer: FlatIndex, 
-                 d: int, 
-                 nlist: int, 
-                 metric_type: MetricType = MetricType.L2):
+    """IVF index that stores raw vectors in inverted lists."""
+    
+    def __init__(self, quantizer: FlatIndex, d: int, nlist: int):
+        """Initialize IVF flat index.
+        
+        Args:
+            quantizer: Coarse quantizer (typically a FlatIndex)
+            d: Vector dimension
+            nlist: Number of inverted lists (partitions)
+        """
         super().__init__(d)
         self._quantizer = quantizer
-        self._metric_type = metric_type
         self._nlist = nlist
-        self._nprobe = 1
+        self._nprobe = 1  # Number of lists to probe during search
         self._invlists = [[] for _ in range(nlist)]
-        self._is_trained = False
-
-    @staticmethod 
-    def from_(index_pointer) -> Optional['IVFFlatIndex']:
-        """Swift compatibility: Create from index pointer"""
-        return index_pointer if isinstance(index_pointer, IVFFlatIndex) else None
-
+        
     @property
-    def index_pointer(self):
-        """Swift compatibility: Get index pointer"""
-        return self
-
+    def nlist(self) -> int:
+        """Number of inverted lists."""
+        return self._nlist
+        
     @property
     def nprobe(self) -> int:
+        """Number of lists to probe during search."""
         return self._nprobe
-
+        
     @nprobe.setter
     def nprobe(self, value: int) -> None:
         if value < 1:
             raise ValueError("nprobe must be positive")
         self._nprobe = value
-
-    @property 
-    def nlist(self) -> int:
-        return self._nlist
-
+        
     @property
     def quantizer(self) -> FlatIndex:
+        """The coarse quantizer used by this index."""
         return self._quantizer
-
+        
     def train(self, xs: List[List[float]]) -> None:
         """Train the index.
+        
+        For IVFFlatIndex, this only trains the coarse quantizer.
         
         Args:
             xs: Training vectors
@@ -57,15 +59,10 @@ class IVFFlatIndex(BaseIndex):
         if not xs:
             raise ValueError("Empty training data")
             
-        x = mx.array(xs, dtype=mx.float32)
-        if x.shape[1] != self.d:
-            raise ValueError(f"Data dimension {x.shape[1]} does not match index dimension {self.d}")
-            
         # Train quantizer
         self._quantizer.train(xs)
-        self._centroids = mx.array(self._quantizer.xb(), dtype=mx.float32)
         self._is_trained = True
-
+        
     def add(self, xs: List[List[float]], ids: Optional[List[int]] = None) -> None:
         """Add vectors to the index.
         
@@ -80,13 +77,13 @@ class IVFFlatIndex(BaseIndex):
         if x.shape[1] != self.d:
             raise ValueError(f"Data dimension {x.shape[1]} does not match index dimension {self.d}")
             
-        # Assign vectors to lists
+        # Assign vectors to lists using quantizer
         assignments = self._quantizer.search(xs, 1)
         for i, label in enumerate(assignments.labels):
-            self._lists[label[0]].append((ids[i] if ids else i, x[i]))
+            self._invlists[label[0]].append((ids[i] if ids else i, x[i]))
             
         self._ntotal += len(x)
-
+        
     def search(self, xs: List[List[float]], k: int) -> SearchResult:
         """Search for nearest neighbors.
         
@@ -116,7 +113,7 @@ class IVFFlatIndex(BaseIndex):
             
             # Gather vectors from selected lists
             for list_id in probe_labels:
-                for vid, vec in self._lists[list_id]:
+                for vid, vec in self._invlists[list_id]:
                     probe_vectors.append(vec)
                     probe_ids.append(vid)
                     
@@ -136,9 +133,9 @@ class IVFFlatIndex(BaseIndex):
             labels.append([probe_ids[i] for i in idx.tolist()])
             
         return SearchResult(distances=distances, labels=labels)
-
+        
     def reset(self) -> None:
-        """Remove all vectors from the index."""
+        """Reset the index."""
         super().reset()
         self._invlists = [[] for _ in range(self._nlist)]
         self._quantizer.reset()
