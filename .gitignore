@@ -7,3 +7,13 @@ DerivedData/
 /.swiftpm/xcode
 .netrc
 /.vscode
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+.installed.cfg
+*.egg
+

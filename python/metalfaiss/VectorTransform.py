@@ -50,7 +50,18 @@ class BaseLinearTransform(BaseVectorTransform):
         self.is_orthonormal = True
 
     def transform_transpose(self, xs):
-        raise NotImplementedError
+        """Apply transpose of the linear transformation.
+        
+        For a linear transform with matrix A, this applies A^T to the input vectors.
+        This method should be overridden by subclasses that have a specific matrix.
+        """
+        # Default implementation - subclasses should override this
+        # with their specific linear transformation matrix
+        if not hasattr(self, 'matrix') or self.matrix is None:
+            raise NotImplementedError("Subclass must implement transform_transpose or provide a 'matrix' attribute")
+        
+        xs = mx.array(xs, dtype=mx.float32)
+        return mx.matmul(xs, self.matrix.T)
 
 class CenteringTransform(BaseVectorTransform):
     def __init__(self, d):
