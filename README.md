@@ -1,202 +1,235 @@
-# Swift Faiss
+# Metal FAISS
 
-[![](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fjkrukowski%2FSwiftFaiss%2Fbadge%3Ftype%3Dswift-versions)](https://swiftpackageindex.com/jkrukowski/SwiftFaiss)
-[![](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fjkrukowski%2FSwiftFaiss%2Fbadge%3Ftype%3Dplatforms)](https://swiftpackageindex.com/jkrukowski/SwiftFaiss)
+[![Python](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/downloads/)
+[![MLX](https://img.shields.io/badge/MLX-compatible-orange.svg)](https://ml-explore.github.io/mlx/build/html/index.html)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE.md)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey.svg)]()
 
-Use [Faiss](https://github.com/facebookresearch/faiss) in Swift.
+**Metal FAISS** is a pure Python implementation of [Facebook's FAISS](https://github.com/facebookresearch/faiss) (Facebook AI Similarity Search) library, optimized for Apple Silicon using MLX (Metal Learning Exchange). This implementation provides efficient similarity search and clustering of dense vectors with Metal Performance Shaders acceleration on supported hardware.
 
-Based on [Faiss Mobile](https://github.com/DeveloperMindset-com/faiss-mobile) and [OpenMP Mobile](https://github.com/DeveloperMindset-com/openmp-mobile).
+> 🚀 **Pure Python + MLX**: No C++ compilation required, leverages Apple's MLX framework for Metal acceleration
 
-## Usage
+## ✨ Features
 
-Command line demo
+- **🔍 Vector Similarity Search**: Efficient k-NN search with multiple distance metrics (L2, Inner Product, L1, L∞)
+- **🚀 Metal Acceleration**: Optimized for Apple Silicon using MLX and Metal Performance Shaders  
+- **📊 Multiple Index Types**: FlatIndex, IVFIndex, and more advanced indexing structures
+- **🔄 Vector Transforms**: PCA, normalization, centering, and other preprocessing transforms
+- **🎯 Clustering**: K-means and other clustering algorithms
+- **⚡ Lazy Evaluation**: Efficient computation graphs with MLX's lazy evaluation
+- **🐍 Pure Python**: No C++ compilation, easy installation and deployment
+- **🔧 NumPy Fallback**: Works on systems without Metal support
 
-```
-$ swift run swift-faiss <subcommand> <options>
-```
-
-Available subcommands:
-
-- `flat`: create a `FlatIndex`, add vectors to it and search for the most similar sentences.
-- `ivfflat`: create an `IVFFlatIndex`, train and add vectors to it and search for the most similar sentences.
-- `pq`: create an `PQIndex`, train and add vectors to it and search for the most similar sentences.
-- `clustering`: k-means clustering example.
-
-Command line help
-
-```
-$ swift run swift-faiss --help
-```
-
-In your own code
-
-```swift
-import SwiftFaiss
-
-let embeddings: [[Float]] = [
-    [0.1, 0.2, 0.3],
-    [0.4, 0.5, 0.6],
-    [0.7, 0.8, 0.9],
-    [1.0, 1.1, 1.2],
-    [1.3, 1.4, 1.5],
-    [1.6, 1.7, 1.8]
-]
-let d = embeddings[0].count
-let index = try FlatIndex(d: d, metricType: .l2)
-try index.add(embeddings)
-
-let result = try index.search([[0.1, 0.5, 0.9]], k: 2)
-// do something with result
-```
-
-https://github.com/jkrukowski/UseSwiftFaiss contains an iOS example.
-
-## Installation
-
-### Swift Package Manager
-
-You can use [Swift Package Manager](https://swift.org/package-manager/) and specify dependency in `Package.swift` by adding:
-
-```swift
-.package(url: "https://github.com/jkrukowski/SwiftFaiss.git", from: "0.0.7")
-```
-
-## Format code
-
-```
-$ swift package plugin --allow-writing-to-package-directory swiftformat
-```
-
-## Tests
-
-```
-$ swift test
-```
-
-## More info
-
-- [Faiss: The Missing Manual](https://www.pinecone.io/learn/series/faiss/)
-- [Faiss C API](https://github.com/facebookresearch/faiss/blob/main/c_api/INSTALL.md)
-
-## Python Implementation
-
-### Usage
-
-Command line demo
-
-```
-$ python3 <script_name>.py <options>
-```
-
-Available scripts:
-
-- `Clustering.py`: create a k-means clustering model, train it, and predict clusters.
-- `FlatIndex.py`: create a `FlatIndex`, add vectors to it, and search for the most similar vectors.
-- `IVFFlatIndex.py`: create an `IVFFlatIndex`, train and add vectors to it, and search for the most similar vectors.
-- `PQIndex.py`: create a `PQIndex`, train and add vectors to it, and search for the most similar vectors.
-- `PreTransformIndex.py`: create a `PreTransformIndex`, train and add vectors to it, and search for the most similar vectors.
-
-### Installation
-
-1. Clone the repository:
-
-```
-$ git clone https://github.com/sydneyrenee/MetalFaiss.git
-$ cd MetalFaiss
-```
-
-2. Install the required dependencies:
-
-```
-$ pip install -r requirements.txt
-```
-
-3. Run the desired script:
-
-```
-$ python3 <script_name>.py <options>
-```
-
-### Note
-
-The Python implementation now uses MLX routines instead of NumPy for array and tensor operations.
-
-### Lazy Evaluation
-
-#### Why Lazy Evaluation
-
-When you perform operations in MLX, no computation actually happens. Instead a compute graph is recorded. The actual computation only happens if an eval() is performed.
-
-MLX uses lazy evaluation because it has some nice features, some of which we describe below.
-
-#### Transforming Compute Graphs
-
-Lazy evaluation lets us record a compute graph without actually doing any computations. This is useful for function transformations like grad() and vmap() and graph optimizations.
-
-Currently, MLX does not compile and rerun compute graphs. They are all generated dynamically. However, lazy evaluation makes it much easier to integrate compilation for future performance enhancements.
-
-#### Only Compute What You Use
-
-In MLX you do not need to worry as much about computing outputs that are never used. For example:
+## 🚀 Quick Start
 
 ```python
-def fun(x):
-    a = fun1(x)
-    b = expensive_fun(a)
-    return a, b
+import metalfaiss
+import numpy as np  # MLX preferred, but NumPy works as fallback
 
-y, _ = fun(x)
+# Create some sample data (1000 vectors, 128 dimensions)
+data = np.random.normal(size=(1000, 128)).astype(np.float32)
+query = np.random.normal(size=(5, 128)).astype(np.float32)
+
+# Create and populate index
+index = metalfaiss.FlatIndex(d=128, metric_type=metalfaiss.MetricType.L2)
+index.add(data)
+
+# Search for 10 nearest neighbors
+result = index.search(query, k=10)
+print(f"Found {len(result.labels)} nearest neighbors")
+print(f"Distances: {result.distances.shape}, Labels: {result.labels.shape}")
 ```
 
-Here, we never actually compute the output of expensive_fun. Use this pattern with care though, as the graph of expensive_fun is still built, and that has some cost associated to it.
+## 📖 More Examples
 
-Similarly, lazy evaluation can be beneficial for saving memory while keeping code simple. Say you have a very large model Model derived from mlx.nn.Module. You can instantiate this model with model = Model(). Typically, this will initialize all of the weights as float32, but the initialization does not actually compute anything until you perform an eval(). If you update the model with float16 weights, your maximum consumed memory will be half that required if eager computation was used instead.
+Check out our example scripts:
 
-This pattern is simple to do in MLX thanks to lazy computation:
+- **[Basic Usage](python/example_usage.py)**: Simple similarity search with FlatIndex
+- **[Advanced Examples](python/advanced_examples.py)**: IVF indexes, clustering, and transforms
 
+## 📦 Installation
+
+### Prerequisites
+
+- **Python 3.8+**
+- **MLX**: Apple's machine learning framework
+  ```bash
+  pip install mlx
+  ```
+
+### Install Metal FAISS
+
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/SolaceHarmony/MetalFaiss.git
+   cd MetalFaiss
+   ```
+
+2. **Install the Python package:**
+   ```bash
+   cd python
+   pip install -e .
+   ```
+
+3. **Verify installation:**
+   ```python
+   import metalfaiss
+   print(f"Metal FAISS version: {metalfaiss.__version__}")
+   ```
+
+### Alternative: Direct Installation
+```bash
+pip install mlx numpy  # Dependencies
+git clone https://github.com/SolaceHarmony/MetalFaiss.git
+cd MetalFaiss/python && pip install -e .
+```
+
+## 🧪 Running Tests
+
+```bash
+cd python
+python -m unittest discover metalfaiss.unittest -v
+```
+
+## 🏗️ Development
+
+### Setting up Development Environment
+
+```bash
+git clone https://github.com/SolaceHarmony/MetalFaiss.git
+cd MetalFaiss/python
+pip install -e .  # Editable install
+```
+
+### Project Structure
+
+```
+MetalFaiss/
+├── python/                 # Python Metal FAISS implementation
+│   ├── metalfaiss/        # Main package
+│   │   ├── __init__.py   # Package initialization
+│   │   ├── indexflat.py  # Flat index implementation  
+│   │   ├── metric_type.py # Distance metrics
+│   │   └── ...
+│   ├── example_usage.py   # Usage examples
+│   └── setup.py          # Package setup
+├── Sources/               # Swift implementation (legacy)
+└── README.md             # This file
+```
+
+## 📚 API Documentation
+
+### Core Classes
+
+- **`FlatIndex`**: Exact similarity search using brute force
+- **`IVFIndex`**: Inverted file index for faster approximate search  
+- **`MetricType`**: Distance metrics (L2, InnerProduct, L1, Linf)
+- **`VectorTransform`**: Data preprocessing (PCA, normalization, etc.)
+
+### Example Usage Patterns
+
+#### Basic Similarity Search
 ```python
-model = Model() # no memory used yet
-model.load_weights("weights_fp16.safetensors")
+import metalfaiss
+import numpy as np  # or: import mlx.core as mx
+
+# Create index
+index = metalfaiss.FlatIndex(d=128, metric_type=metalfaiss.MetricType.L2)
+
+# Add vectors
+vectors = np.random.normal(size=(1000, 128)).astype(np.float32)
+index.add(vectors)
+
+# Search
+query = np.random.normal(size=(1, 128)).astype(np.float32)
+result = index.search(query, k=5)
+print(f"Distances: {result.distances}")
+print(f"Indices: {result.labels}")
 ```
 
-#### When to Evaluate
-
-A common question is when to use eval(). The trade-off is between letting graphs get too large and not batching enough useful work.
-
-For example:
-
+#### Vector Preprocessing
 ```python
-for _ in range(100):
-     a = a + b
-     mx.eval(a)
-     b = b * 2
-     mx.eval(b)
+# Apply PCA transform (when available)
+try:
+    transform = metalfaiss.PCAMatrixTransform(d_in=128, d_out=64)
+    transform.train(training_data)
+    transformed_data = transform.apply(data)
+except AttributeError:
+    print("PCA transform not yet implemented")
 ```
 
-This is a bad idea because there is some fixed overhead with each graph evaluation. On the other hand, there is some slight overhead which grows with the compute graph size, so extremely large graphs (while computationally correct) can be costly.
+## 📈 Performance
 
-Luckily, a wide range of compute graph sizes work pretty well with MLX: anything from a few tens of operations to many thousands of operations per evaluation should be okay.
+Metal FAISS is optimized for Apple Silicon but works on any platform:
 
-Most numerical computations have an iterative outer loop (e.g. the iteration in stochastic gradient descent). A natural and usually efficient place to use eval() is at each iteration of this outer loop.
+- **🚀 Apple Silicon**: Full Metal acceleration via MLX
+- **🖥️ Intel/AMD**: NumPy fallback, still efficient
+- **☁️ Cloud/Linux**: Compatible with standard Python environments
 
-Here is a concrete example:
+## 🤝 Contributing
 
-```python
-for batch in dataset:
+We welcome contributions! Please see our [Contributing Guide](.github/CONTRIBUTING.md) for details.
 
-    # Nothing has been evaluated yet
-    loss, grad = value_and_grad_fn(model, batch)
+### Quick Contribution Steps
 
-    # Still nothing has been evaluated
-    optimizer.update(model, grad)
+1. **Fork** the repository
+2. **Create** a feature branch (`git checkout -b feature/amazing-feature`)
+3. **Commit** your changes (`git commit -m 'Add amazing feature'`)
+4. **Push** to the branch (`git push origin feature/amazing-feature`)
+5. **Open** a Pull Request
 
-    # Evaluate the loss and the new parameters which will
-    # run the full gradient computation and optimizer update
-    mx.eval(loss, model.parameters())
-```
+### Development Guidelines
 
-An important behavior to be aware of is when the graph will be implicitly evaluated. Anytime you print an array, convert it to an numpy.ndarray, or otherwise access its memory via memoryview, the graph will be evaluated. Saving arrays via save() (or any other MLX saving functions) will also evaluate the array.
+- Follow PEP 8 style guidelines
+- Add tests for new functionality
+- Update documentation as needed
+- Ensure MLX compatibility
 
-Calling array.item() on a scalar array will also evaluate it. In the example above, printing the loss (print(loss)) or adding the loss scalar to a list (losses.append(loss.item())) would cause a graph evaluation. If these lines are before mx.eval(loss, model.parameters()) then this will be a partial evaluation, computing only the forward pass.
+## 👥 Contributors
 
-Also, calling eval() on an array or set of arrays multiple times is perfectly fine. This is effectively a no-op.
+Thanks to all contributors who have helped build Metal FAISS:
+
+- **[Sydney Renee](https://github.com/sydneyrenee)** - Core Python implementation and MLX integration
+
+*Want to contribute? Check out our [Contributing Guide](.github/CONTRIBUTING.md)!*
+
+## 🔗 Useful Resources
+
+- **[FAISS Documentation](https://faiss.ai/)** - Original FAISS library
+- **[MLX Documentation](https://ml-explore.github.io/mlx/)** - Apple's MLX framework
+- **[FAISS: The Missing Manual](https://www.pinecone.io/learn/series/faiss/)** - Comprehensive FAISS guide
+- **[Implementation Status](IMPLEMENTATION_STATUS.md)** - Current feature completeness
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md) file for details.
+
+## 🙏 Acknowledgments
+
+- **[Facebook Research](https://github.com/facebookresearch/faiss)** - Original FAISS library and research
+- **[Apple MLX Team](https://github.com/ml-explore/mlx)** - MLX framework enabling Metal acceleration
+- **[Jan Krukowski](https://github.com/jkrukowski/SwiftFaiss)** - Swift FAISS implementation that inspired this project
+- **FAISS Community** - For the foundational algorithms and research
+
+---
+
+<div align="center">
+
+**⭐ Star this repo if Metal FAISS helped you! ⭐**
+
+[🐛 Report Bug](https://github.com/SolaceHarmony/MetalFaiss/issues) • [✨ Request Feature](https://github.com/SolaceHarmony/MetalFaiss/issues) • [💬 Discussions](https://github.com/SolaceHarmony/MetalFaiss/discussions)
+
+Made with ❤️ by the Metal FAISS team
+
+</div>
+
+## 🗂️ Swift Implementation (Legacy)
+
+> **Note**: This repository also contains a Swift implementation of FAISS in the `Sources/` directory. However, the primary focus is now on the Python + MLX implementation described above.
+
+The Swift implementation is based on [SwiftFaiss](https://github.com/jkrukowski/SwiftFaiss) and provides:
+- Native Swift bindings to FAISS
+- iOS compatibility
+- Command-line tools
+
+For Swift usage, please refer to the original documentation or consider using the maintained [SwiftFaiss](https://github.com/jkrukowski/SwiftFaiss) project directly.
