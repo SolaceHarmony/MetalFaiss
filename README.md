@@ -1,202 +1,175 @@
-# Swift Faiss
+# MetalFaiss
 
-[![](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fjkrukowski%2FSwiftFaiss%2Fbadge%3Ftype%3Dswift-versions)](https://swiftpackageindex.com/jkrukowski/SwiftFaiss)
-[![](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fjkrukowski%2FSwiftFaiss%2Fbadge%3Ftype%3Dplatforms)](https://swiftpackageindex.com/jkrukowski/SwiftFaiss)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![MLX Compatible](https://img.shields.io/badge/MLX-compatible-green.svg)](https://github.com/ml-explore/mlx)
+[![Apache 2.0 License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE.md)
 
-Use [Faiss](https://github.com/facebookresearch/faiss) in Swift.
+A pure Python implementation of FAISS (Facebook AI Similarity Search) optimized for Apple Silicon using MLX for Metal acceleration.
 
-Based on [Faiss Mobile](https://github.com/DeveloperMindset-com/faiss-mobile) and [OpenMP Mobile](https://github.com/DeveloperMindset-com/openmp-mobile).
+## Features
 
-## Usage
-
-Command line demo
-
-```
-$ swift run swift-faiss <subcommand> <options>
-```
-
-Available subcommands:
-
-- `flat`: create a `FlatIndex`, add vectors to it and search for the most similar sentences.
-- `ivfflat`: create an `IVFFlatIndex`, train and add vectors to it and search for the most similar sentences.
-- `pq`: create an `PQIndex`, train and add vectors to it and search for the most similar sentences.
-- `clustering`: k-means clustering example.
-
-Command line help
-
-```
-$ swift run swift-faiss --help
-```
-
-In your own code
-
-```swift
-import SwiftFaiss
-
-let embeddings: [[Float]] = [
-    [0.1, 0.2, 0.3],
-    [0.4, 0.5, 0.6],
-    [0.7, 0.8, 0.9],
-    [1.0, 1.1, 1.2],
-    [1.3, 1.4, 1.5],
-    [1.6, 1.7, 1.8]
-]
-let d = embeddings[0].count
-let index = try FlatIndex(d: d, metricType: .l2)
-try index.add(embeddings)
-
-let result = try index.search([[0.1, 0.5, 0.9]], k: 2)
-// do something with result
-```
-
-https://github.com/jkrukowski/UseSwiftFaiss contains an iOS example.
+- **Pure Python Implementation**: No C++ dependencies, easy to install and modify
+- **Metal Acceleration**: Optimized for Apple Silicon using MLX framework
+- **NumPy Fallback**: Works on all platforms with automatic fallback to NumPy
+- **FAISS Compatible**: Similar API to original FAISS library
+- **Lazy Evaluation**: Efficient computation graphs with MLX
 
 ## Installation
 
-### Swift Package Manager
+### Requirements
 
-You can use [Swift Package Manager](https://swift.org/package-manager/) and specify dependency in `Package.swift` by adding:
+- Python 3.8+
+- NumPy (required)
+- MLX (optional, for Metal acceleration on Apple Silicon)
 
-```swift
-.package(url: "https://github.com/jkrukowski/SwiftFaiss.git", from: "0.0.7")
+### Install from Source
+
+```bash
+git clone https://github.com/SolaceHarmony/MetalFaiss.git
+cd MetalFaiss/python
+pip install -e .
 ```
 
-## Format code
+### Install MLX (Optional, for Apple Silicon)
 
-```
-$ swift package plugin --allow-writing-to-package-directory swiftformat
-```
-
-## Tests
-
-```
-$ swift test
+```bash
+pip install mlx
 ```
 
-## More info
-
-- [Faiss: The Missing Manual](https://www.pinecone.io/learn/series/faiss/)
-- [Faiss C API](https://github.com/facebookresearch/faiss/blob/main/c_api/INSTALL.md)
-
-## Python Implementation
-
-### Usage
-
-Command line demo
-
-```
-$ python3 <script_name>.py <options>
-```
-
-Available scripts:
-
-- `Clustering.py`: create a k-means clustering model, train it, and predict clusters.
-- `FlatIndex.py`: create a `FlatIndex`, add vectors to it, and search for the most similar vectors.
-- `IVFFlatIndex.py`: create an `IVFFlatIndex`, train and add vectors to it, and search for the most similar vectors.
-- `PQIndex.py`: create a `PQIndex`, train and add vectors to it, and search for the most similar vectors.
-- `PreTransformIndex.py`: create a `PreTransformIndex`, train and add vectors to it, and search for the most similar vectors.
-
-### Installation
-
-1. Clone the repository:
-
-```
-$ git clone https://github.com/sydneyrenee/MetalFaiss.git
-$ cd MetalFaiss
-```
-
-2. Install the required dependencies:
-
-```
-$ pip install -r requirements.txt
-```
-
-3. Run the desired script:
-
-```
-$ python3 <script_name>.py <options>
-```
-
-### Note
-
-The Python implementation now uses MLX routines instead of NumPy for array and tensor operations.
-
-### Lazy Evaluation
-
-#### Why Lazy Evaluation
-
-When you perform operations in MLX, no computation actually happens. Instead a compute graph is recorded. The actual computation only happens if an eval() is performed.
-
-MLX uses lazy evaluation because it has some nice features, some of which we describe below.
-
-#### Transforming Compute Graphs
-
-Lazy evaluation lets us record a compute graph without actually doing any computations. This is useful for function transformations like grad() and vmap() and graph optimizations.
-
-Currently, MLX does not compile and rerun compute graphs. They are all generated dynamically. However, lazy evaluation makes it much easier to integrate compilation for future performance enhancements.
-
-#### Only Compute What You Use
-
-In MLX you do not need to worry as much about computing outputs that are never used. For example:
+## Quick Start
 
 ```python
-def fun(x):
-    a = fun1(x)
-    b = expensive_fun(a)
-    return a, b
+import metalfaiss
 
-y, _ = fun(x)
+# Create vectors (embeddings)
+embeddings = [
+    [0.1, 0.2, 0.3],
+    [0.4, 0.5, 0.6], 
+    [0.7, 0.8, 0.9],
+    [1.0, 1.1, 1.2],
+    [1.3, 1.4, 1.5]
+]
+
+# Create index and add vectors
+d = len(embeddings[0])  # dimension
+index = metalfaiss.FlatIndex(d, metalfaiss.MetricType.L2)
+index.add(embeddings)
+
+# Search for similar vectors
+query = [[0.1, 0.5, 0.9]]
+k = 3  # number of nearest neighbors
+result = index.search(query, k)
+
+print(f"Distances: {result.distances}")
+print(f"Labels: {result.labels}")
 ```
 
-Here, we never actually compute the output of expensive_fun. Use this pattern with care though, as the graph of expensive_fun is still built, and that has some cost associated to it.
+## Usage
 
-Similarly, lazy evaluation can be beneficial for saving memory while keeping code simple. Say you have a very large model Model derived from mlx.nn.Module. You can instantiate this model with model = Model(). Typically, this will initialize all of the weights as float32, but the initialization does not actually compute anything until you perform an eval(). If you update the model with float16 weights, your maximum consumed memory will be half that required if eager computation was used instead.
+### Command Line Examples
 
-This pattern is simple to do in MLX thanks to lazy computation:
+Run the included examples:
+
+```bash
+cd python
+python example_usage.py
+python advanced_examples.py
+```
+
+### Supported Distance Metrics
+
+- **L2 (Euclidean)**: `MetricType.L2`
+- **L1 (Manhattan)**: `MetricType.L1`
+- **L∞ (Chebyshev)**: `MetricType.LINF`
+- **Inner Product**: `MetricType.INNER_PRODUCT`
+
+### Basic Operations
 
 ```python
-model = Model() # no memory used yet
-model.load_weights("weights_fp16.safetensors")
+# Create different index types
+index_l2 = metalfaiss.FlatIndex(d, metalfaiss.MetricType.L2)
+index_ip = metalfaiss.FlatIndex(d, metalfaiss.MetricType.INNER_PRODUCT)
+
+# Add vectors to index
+index.add(vectors)
+
+# Search for k nearest neighbors
+result = index.search(query_vectors, k=5)
+
+# Range search (find all vectors within distance threshold)
+range_result = index.range_search(query_vectors, radius=0.5)
+
+# Reconstruct stored vectors
+reconstructed = index.reconstruct(vector_id)
 ```
 
-#### When to Evaluate
+## Performance
 
-A common question is when to use eval(). The trade-off is between letting graphs get too large and not batching enough useful work.
+MetalFaiss provides excellent performance characteristics:
 
-For example:
+- **Metal Acceleration**: Leverages Apple's Metal Performance Shaders via MLX
+- **Lazy Evaluation**: Only computes what's needed when it's needed
+- **Memory Efficient**: Optimized memory usage patterns
+- **Parallel Processing**: Automatic parallelization on supported hardware
+
+## MLX Integration
+
+### Why MLX?
+
+MLX (Machine Learning for Apple silicon) provides:
+- **Metal Performance Shaders**: GPU acceleration on Apple Silicon
+- **Lazy Evaluation**: Build computation graphs, execute efficiently
+- **Unified Memory**: Efficient memory management between CPU/GPU
+- **Apple Silicon Optimization**: Native performance on M1/M2/M3 chips
+
+### Lazy Evaluation Benefits
 
 ```python
-for _ in range(100):
-     a = a + b
-     mx.eval(a)
-     b = b * 2
-     mx.eval(b)
+# Operations are recorded, not immediately executed
+vectors = metalfaiss.create_matrix(1000, 128)
+query = metalfaiss.normalize_data(vectors[:10])
+
+# Computation happens only when result is needed
+result = index.search(query, k=5)  # <- Evaluation occurs here
+print(result.distances)  # <- Results available
 ```
 
-This is a bad idea because there is some fixed overhead with each graph evaluation. On the other hand, there is some slight overhead which grows with the compute graph size, so extremely large graphs (while computationally correct) can be costly.
+## Examples
 
-Luckily, a wide range of compute graph sizes work pretty well with MLX: anything from a few tens of operations to many thousands of operations per evaluation should be okay.
+See the `python/` directory for complete examples:
 
-Most numerical computations have an iterative outer loop (e.g. the iteration in stochastic gradient descent). A natural and usually efficient place to use eval() is at each iteration of this outer loop.
+- `example_usage.py`: Basic usage patterns
+- `advanced_examples.py`: Complex scenarios and optimizations
 
-Here is a concrete example:
+## API Reference
 
-```python
-for batch in dataset:
+### Core Classes
 
-    # Nothing has been evaluated yet
-    loss, grad = value_and_grad_fn(model, batch)
+- `FlatIndex`: Flat (exhaustive search) index
+- `MetricType`: Distance metric enumeration
+- `SearchResult`: K-NN search results
+- `SearchRangeResult`: Range search results
 
-    # Still nothing has been evaluated
-    optimizer.update(model, grad)
+### Utilities
 
-    # Evaluate the loss and the new parameters which will
-    # run the full gradient computation and optimizer update
-    mx.eval(loss, model.parameters())
-```
+- `load_data()`: Load vectors from file
+- `create_matrix()`: Create random matrices
+- `normalize_data()`: Normalize vectors to unit length
 
-An important behavior to be aware of is when the graph will be implicitly evaluated. Anytime you print an array, convert it to an numpy.ndarray, or otherwise access its memory via memoryview, the graph will be evaluated. Saving arrays via save() (or any other MLX saving functions) will also evaluate the array.
+## License
 
-Calling array.item() on a scalar array will also evaluate it. In the example above, printing the loss (print(loss)) or adding the loss scalar to a list (losses.append(loss.item())) would cause a graph evaluation. If these lines are before mx.eval(loss, model.parameters()) then this will be a partial evaluation, computing only the forward pass.
+Licensed under the Apache License, Version 2.0. See [LICENSE.md](LICENSE.md) for details.
 
-Also, calling eval() on an array or set of arrays multiple times is perfectly fine. This is effectively a no-op.
+## Attribution
+
+This implementation was created by Sydney Bach for The Solace Project, with the original Swift implementation by [Jan Krukowski](https://github.com/jkrukowski/SwiftFaiss) used as a reference for the Python translation.
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit pull requests or open issues for bugs and feature requests.
+
+## Related Projects
+
+- [FAISS](https://github.com/facebookresearch/faiss): The original Facebook AI Similarity Search library
+- [MLX](https://github.com/ml-explore/mlx): Apple's machine learning framework
+- [SwiftFaiss](https://github.com/jkrukowski/SwiftFaiss): The original Swift implementation used as reference

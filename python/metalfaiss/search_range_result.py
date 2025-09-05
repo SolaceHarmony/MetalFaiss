@@ -1,3 +1,9 @@
+# MetalFaiss - A pure Python implementation of FAISS using MLX for Metal acceleration
+# Copyright (c) 2024 Sydney Bach, The Solace Project
+# Licensed under the Apache License, Version 2.0 (see LICENSE file)
+#
+# Original Swift implementation by Jan Krukowski used as reference for Python translation
+
 try:
     import mlx.core as mx
     _HAS_MLX = True
