@@ -1,19 +1,26 @@
-# indexflat.py
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-# Licensed under the MIT license (see LICENSE file in root directory).
+# MetalFaiss - A pure Python implementation of FAISS using MLX for Metal acceleration
+# Copyright (c) 2024 Sydney Bach, The Solace Project
+# Licensed under the Apache License, Version 2.0 (see LICENSE file)
+#
+# Original Swift implementation by Jan Krukowski used as reference for Python translation
 
 try:
     import mlx.core as mx
     _HAS_MLX = True
 except ImportError:
     _HAS_MLX = False
-    # Mock MLX functionality with numpy
+    # Use NumPy as fallback when MLX is not available
     import numpy as np
     
     class MockMLX:
         @staticmethod
         def array(data, dtype=None):
-            return np.array(data, dtype=dtype if dtype != mx.float32 else np.float32)
+            np_dtype = dtype
+            if hasattr(dtype, '__name__') and dtype.__name__ == 'float32':
+                np_dtype = np.float32
+            elif hasattr(dtype, '__name__') and dtype.__name__ == 'int64':
+                np_dtype = np.int64
+            return np.array(data, dtype=np_dtype)
         
         @staticmethod  
         def eval(*args):
@@ -28,8 +35,8 @@ except ImportError:
             return np.arange(n, dtype=dtype)
             
         @staticmethod
-        def matmul(a, b):
-            return np.matmul(a, b)
+        def zeros(shape, dtype=None):
+            return np.zeros(shape, dtype=dtype)
             
         @staticmethod
         def topk(arr, k, axis=-1):
@@ -42,9 +49,13 @@ except ImportError:
                 values = arr[indices]
             return values, indices
             
-        @staticmethod 
+        @staticmethod
         def take(arr, indices, axis=0):
             return np.take(arr, indices, axis=axis)
+            
+        @staticmethod
+        def matmul(a, b):
+            return np.matmul(a, b)
             
         @staticmethod
         def sum(arr, axis=None, keepdims=False):
@@ -55,16 +66,8 @@ except ImportError:
             return np.abs(arr)
             
         @staticmethod
-        def max(arr, axis=None):
-            return np.max(arr, axis=axis)
-            
-        @staticmethod
-        def copy(arr):
-            return np.copy(arr)
-            
-        @staticmethod
-        def save(arr, filename):
-            np.save(filename, arr)
+        def max(arr, axis=None, keepdims=False):
+            return np.max(arr, axis=axis, keepdims=keepdims)
 
         float32 = np.float32
         int64 = np.int64
@@ -75,8 +78,8 @@ import numpy as np
 from typing import List, Optional, Tuple
 
 from .metric_type import MetricType
-from .search_result import SearchResult  # Assume a SearchResult class exists in the project.
-from .distances import pairwise_L2sqr  # A function to compute pairwise L2 squared distances.
+from .search_result import SearchResult
+from .distances import pairwise_L2sqr
 
 class FlatIndex:
     """
