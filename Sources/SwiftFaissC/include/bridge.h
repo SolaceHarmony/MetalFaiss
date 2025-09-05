@@ -1,23 +1,15 @@
-#include "AutoTune_c.h"
-#include "clone_index_c.h"
-#include "Clustering_c.h"
-#include "error_c.h"
-#include "faiss_c.h"
-#include "Index_c.h"
-#include "index_factory_c.h"
-#include "index_io_c.h"
-#include "IndexBinary_c.h"
-#include "IndexFlat_c.h"
-#include "IndexIVF_c.h"
-#include "IndexIVFFlat_c.h"
-#include "IndexLSH_c.h"
-#include "IndexPreTransform_c.h"
-#include "IndexReplicas_c.h"
-#include "IndexScalarQuantizer_c.h"
-#include "IndexShards_c.h"
-#include "MetaIndexes_c.h"
-#include "VectorTransform_c.h"
-#include "impl/AuxIndexStructures_c.h"
-#include "utils/distances_c.h"
+// Minimal bridge header for SwiftFaissC
+// This is a placeholder while FAISS C API headers are unavailable
 
+// Platform-specific includes
+#ifndef __APPLE__
+// On non-Apple platforms, we need basic C headers
+#include <stdio.h>
+#include <stdlib.h>
+#else
+// On Apple platforms, we can include Accelerate if needed
 #include <Accelerate/Accelerate.h>
+#endif
+
+// Placeholder function to make the module compile
+void __bridge_dummy(void);

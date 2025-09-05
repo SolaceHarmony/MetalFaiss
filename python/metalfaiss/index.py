@@ -60,8 +60,20 @@ class Index(ABC):
         Args:
             xs: Vectors to add
             ids: Vector IDs
+            
+        Note:
+            Default implementation ignores IDs and calls regular add().
+            Subclasses that support custom IDs should override this method.
         """
-        raise NotImplementedError("add_with_ids not implemented")
+        # Default implementation - just add vectors without considering IDs
+        # Subclasses that support custom IDs should override this
+        import warnings
+        warnings.warn(
+            "add_with_ids called on index that doesn't support custom IDs. "
+            "Using regular add() instead.",
+            UserWarning
+        )
+        self.add(xs)
 
     @abstractmethod 
     def search(self, xs: List[List[float]], k: int) -> SearchResult:
@@ -86,7 +98,10 @@ class Index(ABC):
         Returns:
             Range search results
         """
-        raise NotImplementedError("range_search not implemented")
+        # Default implementation using regular search
+        # Subclasses can override for more efficient implementations
+        from .range_search import range_search_with_index
+        return range_search_with_index(self, xs, radius)
 
     def assign(self, xs: List[List[float]], k: int = 1) -> List[int]:
         """Assign vectors to nearest neighbors.
@@ -114,8 +129,15 @@ class Index(ABC):
             
         Returns:
             Reconstructed vector
+            
+        Note:
+            Default implementation raises NotImplementedError.
+            Only indexes that store full vectors can implement this.
         """
-        raise NotImplementedError("reconstruct not implemented")
+        raise NotImplementedError(
+            "reconstruct not implemented. "
+            "This index type does not support vector reconstruction."
+        )
 
     def reconstruct_n(self, i0: int, ni: int) -> List[List[float]]:
         """Reconstruct range of vectors.
