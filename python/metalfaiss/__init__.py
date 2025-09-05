@@ -36,8 +36,8 @@ from .search_range_result import SearchRangeResult
 # Main index implementation
 from .indexflat import FlatIndex
 
-# Base classes
-from .VectorTransform import BaseVectorTransform
+# Base classes (use MLX-aware package implementation)
+from .vector_transform import BaseVectorTransform
 
 # Utilities
 from .Utils import load_data, encode_sentences, create_matrix, normalize_data
