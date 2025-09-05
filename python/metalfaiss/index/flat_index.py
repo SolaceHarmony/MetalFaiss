@@ -1,9 +1,9 @@
 from typing import List, Optional, ClassVar
 import mlx.core as mx
 from .base_index import BaseIndex
-from .search_result import SearchResult
-from ..metric_type import MetricType
-from ..errors import IndexError
+from ..utils.search_result import SearchResult
+from ..types.metric_type import MetricType
+from ..faissmlx.distances import pairwise_L2sqr, fvec_inner_products_ny
 
 class FlatIndex(BaseIndex):
     """Flat index implementation using MLX.
@@ -77,20 +77,23 @@ class FlatIndex(BaseIndex):
             raise ValueError(f"Query dimension {x.shape[1]} does not match index dimension {self.d}")
             
         k = min(k, self.ntotal)
-        distances = []
-        labels = []
         
-        for query in x:
-            if self.metric_type == MetricType.L2:
-                dists = mx.sum((self._vectors - query) ** 2, axis=1)
-            else:  # Inner product
-                dists = -mx.sum(self._vectors * query, axis=1)
-                
-            idx = mx.argsort(dists)[:k]
-            distances.append(dists[idx].tolist())
-            labels.append(idx.tolist())
+        # Use optimized distance computations from faissmlx
+        if self.metric_type == MetricType.L2:
+            distances = pairwise_L2sqr(x, self._vectors)
+            # Get k smallest distances
+            values, indices = mx.topk(-distances, k, axis=1)
+            values = -values
+        else:  # Inner product
+            # Compute inner products efficiently
+            distances = -mx.matmul(x, self._vectors.T)
+            # Get k largest inner products
+            values, indices = mx.topk(distances, k, axis=1)
             
-        return SearchResult(distances=distances, labels=labels)
+        return SearchResult(
+            distances=values.tolist(),
+            labels=indices.tolist()
+        )
         
     def xb(self) -> List[List[float]]:
         """Get stored vectors.

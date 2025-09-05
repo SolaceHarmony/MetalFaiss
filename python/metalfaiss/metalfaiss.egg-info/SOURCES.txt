@@ -23,6 +23,7 @@ metalfaiss/index/ivf_flat_index.py
 metalfaiss/index/ivf_index.py
 metalfaiss/index/ivf_scalar_quantizer_index.py
 metalfaiss/index/lsh_index.py
+metalfaiss/index/refine_flat_index.py
 metalfaiss/index/scalar_quantizer_index.py
 metalfaiss/metalfaiss.egg-info/PKG-INFO
 metalfaiss/metalfaiss.egg-info/SOURCES.txt
