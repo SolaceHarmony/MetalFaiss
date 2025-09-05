@@ -1,3 +1,9 @@
+# MetalFaiss - A pure Python implementation of FAISS using MLX for Metal acceleration
+# Copyright (c) 2024 Sydney Bach, The Solace Project
+# Licensed under the Apache License, Version 2.0 (see LICENSE file)
+#
+# Original Swift implementation by Jan Krukowski used as reference for Python translation
+
 from enum import Enum
 from typing import Optional
 import mlx.core as mx
@@ -24,17 +30,13 @@ def load_index(
         Loaded index instance
         
     Raises:
-        IndexError: If loading fails
+        IndexError: Always - index I/O not implemented
         FileNotFoundError: If file doesn't exist
     """
-    try:
-        # Placeholder for actual file loading logic
-        # In the real implementation, this would use proper MLX/Metal loading
-        raise NotImplementedError(
-            "Index loading from file not yet implemented in Python version"
-        )
-    except Exception as e:
-        raise IndexError(f"Failed to load index from {filename}: {str(e)}")
+    raise IndexError(
+        "Index loading from file is not implemented. "
+        "MetalFaiss focuses on in-memory operations."
+    )
         
 def save_index(index: 'BaseIndex', filename: str) -> None:
     """
@@ -45,13 +47,9 @@ def save_index(index: 'BaseIndex', filename: str) -> None:
         filename: Path where index should be saved
         
     Raises:
-        IndexError: If saving fails
+        IndexError: Always - index I/O not implemented
     """
-    try:
-        # Placeholder for actual file saving logic
-        # In the real implementation, this would use proper MLX/Metal saving
-        raise NotImplementedError(
-            "Index saving to file not yet implemented in Python version"
-        )
-    except Exception as e:
-        raise IndexError(f"Failed to save index to {filename}: {str(e)}")
+    raise IndexError(
+        "Index saving to file is not implemented. "
+        "MetalFaiss focuses on in-memory operations."
+    )
