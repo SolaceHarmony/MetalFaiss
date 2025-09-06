@@ -8,7 +8,8 @@ This module provides:
 from typing import Tuple
 import os
 import mlx.core as mx
-from .kernels.qr_kernels import project_coeffs
+from .kernels.qr_kernels import project_coeffs, update_vector
+from .dispatch import choose_qr_impl
 
 def pure_mlx_qr(A: mx.array) -> Tuple[mx.array, mx.array]:
     """QR via Modified Gram–Schmidt using only MLX ops.
@@ -32,11 +33,16 @@ def pure_mlx_qr(A: mx.array) -> Tuple[mx.array, mx.array]:
         # Subtract projections onto previous Q columns (double re-orthogonalization)
         if k > 0:
             Qk = Q[:, :k]                               # (m, k)
+            impl = None
             if os.environ.get("METALFAISS_USE_QR_KERNEL", "0") == "1":
+                impl = "KERNEL_PROJ"
+            else:
+                impl = choose_qr_impl(m, k)
+            if impl == "KERNEL_PROJ":
                 c1 = project_coeffs(Qk, v)
-                v = v - mx.matmul(Qk, c1)
+                v = update_vector(Qk, c1, v)
                 c2 = project_coeffs(Qk, v)
-                v = v - mx.matmul(Qk, c2)
+                v = update_vector(Qk, c2, v)
             else:
                 c1 = mx.matmul(mx.transpose(Qk), v)         # (k,)
                 v = v - mx.matmul(Qk, c1)

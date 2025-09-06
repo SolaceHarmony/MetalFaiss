@@ -10,7 +10,6 @@ more explicit control when MLX adds those features.
 """
 
 import mlx.core as mx
-import numpy as np
 from typing import List, Tuple, Union, Optional
 from enum import Enum
 from dataclasses import dataclass
@@ -60,7 +59,7 @@ DEFAULT_GPU = GpuResources()
 
 # GPU Array Operations
 
-def to_gpu(x: Union[mx.array, np.ndarray, List]) -> mx.array:
+def to_gpu(x: Union[mx.array, "np.ndarray", List]) -> mx.array:
     """Move array to GPU.
     
     Args:
@@ -72,12 +71,13 @@ def to_gpu(x: Union[mx.array, np.ndarray, List]) -> mx.array:
     if isinstance(x, mx.array):
         # TODO: Add explicit device move when MLX supports it
         return x
-    elif isinstance(x, np.ndarray):
+    # Lazy import to avoid hard dependency on NumPy
+    elif 'numpy' in str(type(x)) or type(x).__module__ == 'numpy':
         return mx.array(x)
     else:
         return mx.array(x)
 
-def from_gpu(x: mx.array) -> np.ndarray:
+def from_gpu(x: mx.array):
     """Move array from GPU to CPU.
     
     Args:
@@ -150,10 +150,7 @@ def gpu_hamming_distances(x: mx.array, y: mx.array) -> mx.array:
         Distance matrix (n, m) of uint32 on GPU
     """
     # Create lookup table for Hamming weight
-    table = np.zeros(256, dtype=np.uint8)
-    for i in range(256):
-        table[i] = bin(i).count('1')
-    table = mx.array(table, dtype=mx.uint8)
+    table = mx.array([bin(i).count('1') for i in range(256)], dtype=mx.uint8)
     
     # Compute XOR then lookup Hamming weights
     # TODO: Add optimized implementation when MLX adds GPU-specific ops
@@ -185,10 +182,7 @@ def gpu_popcount(x: mx.array) -> mx.array:
         Array with same shape containing bit counts
     """
     # TODO: Add optimized implementation
-    table = np.zeros(256, dtype=np.uint8)
-    for i in range(256):
-        table[i] = bin(i).count('1')
-    table = mx.array(table, dtype=mx.uint8)
+    table = mx.array([bin(i).count('1') for i in range(256)], dtype=mx.uint8)
     return table[x]
 
 # Memory Management
@@ -237,7 +231,10 @@ class GpuMemoryManager:
             "int64": 8,
             "uint8": 1
         }.get(dtype, 4)
-        size = np.prod(shape) * element_size
+        size = 1
+        for d in shape:
+            size *= int(d)
+        size *= int(element_size)
         
         if not self.resources.allocate(size):
             raise MemoryError("GPU memory limit exceeded")
@@ -258,7 +255,10 @@ class GpuMemoryManager:
             mx.int64: 8,
             mx.uint8: 1
         }.get(arr.dtype, 4)
-        size = np.prod(arr.shape) * element_size
+        size = 1
+        for d in arr.shape:
+            size *= int(d)
+        size *= int(element_size)
         
         self.resources.free(size)
         # Actual freeing handled by MLX

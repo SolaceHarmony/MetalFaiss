@@ -100,15 +100,20 @@ for k in range(min(m, n)):
 ## SVD (Top‑k, Subspace Power Iteration)
 
 - Iterate Z = A^T(A V) and re‑orthonormalize V with QR.
-- Baseline is MLX GEMM (tiled internally). For more gains, write a body‑only Metal kernel for the Z step that stages A and V tiles into threadgroup memory and computes Z tiles.
+- The baseline is MLX GEMM (`mx.matmul`), which is highly optimized.
+- For more performance, the Z-step is implemented as two separate, tiled GEMM-like Metal kernels:
+  1.  `B = A @ V`
+  2.  `Z = A.T @ B`
+- This two-kernel approach is easier to tile and optimize than a single monolithic kernel. For smaller `k`, a "banding" strategy that processes columns of `V` in smaller groups can further improve cache locality and performance.
 
 Outline:
 
 ```python
 V = orthonormal_columns(mx.random.normal((n, k)))
 for _ in range(iters):
-    AV = mx.matmul(A, V)
-    Z  = mx.matmul(A.T, AV)        # or a tiled Metal kernel
+    # Z can be computed via MLX or a two-pass tiled Metal kernel
+    AV = mx.matmul(A, V) 
+    Z  = mx.matmul(A.T, AV)
     V, _ = pure_mlx_qr(Z)
 U  = mx.matmul(A, V)
 S  = mx.sqrt(mx.sum(U*U, axis=0))
@@ -132,4 +137,3 @@ U  = U / mx.where(S > 0, S, 1)[None, :]
 
 - Always benchmark MLX vs kernel for your sizes.
 - Keep one winner per path to simplify maintenance; re‑run benchmarks when shapes/devices change.
-

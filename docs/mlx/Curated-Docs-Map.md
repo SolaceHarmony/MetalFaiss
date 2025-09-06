@@ -23,6 +23,8 @@ Attribution
 - The kernel patterns and HPC techniques used here are adapted from Sydney Bach’s Ember ML project (The Solace Project). Where applicable, this repo mirrors those approaches and salutes the ingenuity that made them work on real hardware.
 
 How this repo applies the patterns
+- docs/mlx/Comprehensive-MLX-Metal-Guide.md — The definitive guide to writing, launching, and optimizing kernels with MLX in this project.
+- docs/research/Journal.md — A log of experiments, benchmarks, and design rationale for our kernels.
 - docs/mlx/Kernel-Guide.md — Working kernel snippets (body+header), grid/tg selection, autoswitch ideas.
 - docs/mlx/Orthogonality.md — Practical left/right orthogonality and completion.
 - `python/metalfaiss/faissmlx/kernels/qr_kernels.py` — Body‑only projection kernel; header for includes.
@@ -30,4 +32,3 @@ How this repo applies the patterns
 - `python/metalfaiss/faissmlx/svd.py` — MLX tiled subspace SVD; designed to slot in a kernelized Z‑step.
 
 If you’re authoring new kernels, scan the curated docs first — they save days of guesswork by showing what actually compiles and runs fast on Apple GPUs.
-
