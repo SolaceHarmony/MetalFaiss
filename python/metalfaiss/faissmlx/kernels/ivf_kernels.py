@@ -13,7 +13,7 @@ Notes
 """
 
 from __future__ import annotations
-from typing import Tuple
+from typing import Tuple, Optional
 import mlx.core as mx
 
 _HEADER = """#include <metal_stdlib>\nusing namespace metal;\n"""
@@ -122,7 +122,7 @@ _KERNEL_TOPK_L2 = mx.fast.metal_kernel(
 )
 
 
-def ivf_list_topk_l2(Q: mx.array, X: mx.array, ids: mx.array, k: int) -> Tuple[mx.array, mx.array]:
+def ivf_list_topk_l2(Q: mx.array, X: mx.array, ids: mx.array, k: int, tpb: Optional[int] = None) -> Tuple[mx.array, mx.array]:
     """Compute top-k L2 distances and ids for one query Q against X.
 
     Args
@@ -137,8 +137,24 @@ def ivf_list_topk_l2(Q: mx.array, X: mx.array, ids: mx.array, k: int) -> Tuple[m
     m, d = int(X.shape[0]), int(X.shape[1])
     kk = int(min(k, 32))
     shape = mx.array([m, d, kk], dtype=mx.uint32)
-    # Single threadgroup; threads per group chosen modestly (32 or 64)
-    tpb = 32
+    # Single threadgroup; choose threads per threadgroup such that tpb*kk <= 1024
+    if tpb is None:
+        import os
+        override = os.environ.get("METALFAISS_IVF_TPB")
+        if override:
+            try:
+                tpb = int(override)
+            except Exception:
+                tpb = None
+    if tpb is None:
+        limit = max(1, 1024 // max(1, kk))
+        # Round down to nearest multiple of 32, clamp to [32, 256]
+        base = (limit // 32) * 32
+        if base < 32:
+            base = 32
+        if base > 256:
+            base = 256
+        tpb = base
     grid = (1, 1, 1)
     threadgroup = (tpb, 1, 1)
     (vals, out_ids) = _KERNEL_TOPK_L2(
@@ -149,3 +165,45 @@ def ivf_list_topk_l2(Q: mx.array, X: mx.array, ids: mx.array, k: int) -> Tuple[m
         threadgroup=threadgroup,
     )
     return vals, out_ids
+
+
+def ivf_list_topk_l2_chunked(Q: mx.array, X: mx.array, ids: mx.array, k: int, rows_per_chunk: int = 4096, tpb: Optional[int] = None) -> Tuple[mx.array, mx.array]:
+    """Chunked variant: split rows and merge top-k on host.
+
+    Useful when lists are long; calls ivf_list_topk_l2 per chunk and merges
+    the partial results into a final top-k on host (k <= 32).
+    """
+    m = int(X.shape[0])
+    kk = min(k, 32)
+    # Initialize with +inf
+    import math
+    best_vals = [math.inf] * kk
+    best_ids = [0] * kk
+
+    def merge(vals, ids):
+        nonlocal best_vals, best_ids
+        # vals, ids are MLX arrays length kk
+        lv = vals.tolist(); li = ids.tolist()
+        # naive merge (small k): insert each candidate
+        for v, i in zip(lv, li):
+            # skip if v is inf (unused slot)
+            if math.isinf(v):
+                continue
+            # if better than current worst, insert
+            worst_idx = max(range(kk), key=lambda t: best_vals[t])
+            if v < best_vals[worst_idx]:
+                best_vals[worst_idx] = v
+                best_ids[worst_idx] = i
+        # keep best_vals sorted for stability (optional)
+        order = sorted(range(kk), key=lambda t: best_vals[t])
+        best_vals = [best_vals[t] for t in order]
+        best_ids = [best_ids[t] for t in order]
+
+    for s in range(0, m, rows_per_chunk):
+        e = min(m, s + rows_per_chunk)
+        if e <= s:
+            continue
+        vals, oids = ivf_list_topk_l2(Q, X[s:e, :], ids[s:e], k, tpb=tpb)
+        merge(vals, oids)
+
+    return mx.array(best_vals, dtype=mx.float32), mx.array(best_ids, dtype=mx.int32)
