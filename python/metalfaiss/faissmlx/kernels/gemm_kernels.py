@@ -47,6 +47,7 @@ Runtime toggles
 from __future__ import annotations
 from typing import Tuple
 import os
+import json
 import mlx.core as mx
 try:
     import mlx.core.metal as metal
@@ -58,6 +59,81 @@ except Exception:
     _tuning = None
 
 _HEADER = """#include <metal_stdlib>\nusing namespace metal;\n"""
+
+
+# JSON configuration (optional)
+_GEMM_CFG: dict | None = None
+
+
+def _load_gemm_cfg() -> dict:
+    """Load JSON config for GEMM kernels.
+
+    Search order (first hit wins):
+    1) Env path: METALFAISS_GEMM_CONFIG_JSON
+    2) Package file: faissmlx/config/gemm_kernels.json (relative to this module)
+    If none found or parse fails, return {}.
+    """
+    global _GEMM_CFG
+    if _GEMM_CFG is not None:
+        return _GEMM_CFG
+    # 1) Env-specified path
+    env_path = os.environ.get("METALFAISS_GEMM_CONFIG_JSON")
+    candidates = []
+    if env_path:
+        candidates.append(env_path)
+    # 2) Default packaged file
+    here = os.path.dirname(__file__)  # .../faissmlx/kernels
+    base = os.path.dirname(here)      # .../faissmlx
+    default_path = os.path.join(base, "config", "gemm_kernels.json")
+    candidates.append(default_path)
+    for p in candidates:
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                _GEMM_CFG = json.load(f) or {}
+                return _GEMM_CFG
+        except Exception:
+            continue
+    _GEMM_CFG = {}
+    return _GEMM_CFG
+
+
+def _get_cfg_bool(env: str, key: str, default: bool) -> bool:
+    v = os.environ.get(env)
+    if v is not None:
+        v2 = v.strip().lower()
+        return v2 in ("1", "true", "yes", "on")
+    cfg = _load_gemm_cfg()
+    if key in cfg:
+        try:
+            return bool(cfg[key])
+        except Exception:
+            pass
+    return default
+
+
+def _get_cfg_int(env: str, key: str, default: int) -> int:
+    v = os.environ.get(env)
+    if v is not None:
+        try:
+            return int(v)
+        except Exception:
+            return default
+    cfg = _load_gemm_cfg()
+    if key in cfg:
+        try:
+            return int(cfg[key])
+        except Exception:
+            pass
+    return default
+
+
+def _get_cfg_str(env: str, key: str) -> str | None:
+    v = os.environ.get(env)
+    if v:
+        return v
+    cfg = _load_gemm_cfg()
+    val = cfg.get(key)
+    return val if isinstance(val, str) and val else None
 
 
 def _detect_device_name() -> str:
@@ -76,7 +152,7 @@ def _select_tile_av() -> Tuple[int, int]:
     Env override: METALFAISS_GEMM_TILE_AV="TMxT" (e.g., 32x8).
     Defaults: M3 → (32, 8); otherwise (16, 16).
     """
-    env = os.environ.get("METALFAISS_GEMM_TILE_AV") or os.environ.get("METALFAISS_GEMM_TILE")
+    env = _get_cfg_str("METALFAISS_GEMM_TILE_AV", "tile_av") or os.environ.get("METALFAISS_GEMM_TILE")
     if env:
         try:
             tm_s, t_s = env.lower().split("x")
@@ -108,7 +184,7 @@ def _select_tile_atb() -> Tuple[int, int, int]:
     Env override: METALFAISS_GEMM_TILE_ATB="TNxTK"; TI fixed at 16.
     Defaults: M3 → (8, 16, 32); otherwise (16, 16, 16).
     """
-    env = os.environ.get("METALFAISS_GEMM_TILE_ATB")
+    env = _get_cfg_str("METALFAISS_GEMM_TILE_ATB", "tile_atb")
     if env:
         try:
             tn_s, tk_s = env.lower().split("x")
@@ -139,27 +215,32 @@ def _square_T_default() -> int:
 
     Env override: METALFAISS_GEMM_TILE_SQ (e.g., 8, 16, 32). Default 16.
     """
-    env = os.environ.get("METALFAISS_GEMM_TILE_SQ")
-    if env:
-        try:
-            t = int(env)
-            if 1 <= t <= 64:
-                return t
-        except Exception:
-            pass
-    return 16
+    t = _get_cfg_int("METALFAISS_GEMM_TILE_SQ", "square_T", 16)
+    if t < 1:
+        t = 1
+    if t > 64:
+        t = 64
+    return t
 
 
 def _use_db() -> bool:
-    return os.environ.get("METALFAISS_GEMM_DB", "0") == "1"
+    return _get_cfg_bool("METALFAISS_GEMM_DB", "double_buffer", False)
 
 
 def _use_v4() -> bool:
-    return os.environ.get("METALFAISS_GEMM_V4", "0") == "1"
+    return _get_cfg_bool("METALFAISS_GEMM_V4", "vectorized_loads", False)
 
 
 def _pad_atb() -> bool:
-    return os.environ.get("METALFAISS_GEMM_PAD_ATB", "0") == "1"
+    return _get_cfg_bool("METALFAISS_GEMM_PAD_ATB", "pad_atb", False)
+
+
+def _use_kernel_flag() -> bool:
+    return _get_cfg_bool("METALFAISS_USE_GEMM_KERNEL", "use_gemm_kernel", False)
+
+
+def _rectsafe_flag() -> bool:
+    return _get_cfg_bool("METALFAISS_GEMM_RECTSAFE", "rectsafe", False)
 
 # Removed legacy rectangular AV/AT_B formatters; square kernels are the production path.
 
@@ -781,8 +862,7 @@ def gemm_av(A: mx.array, V: mx.array) -> mx.array:
     - docs/mlx/Kernel-Guide.md:120
     - docs/metal/Shader-Optimization-Tips.md:148
     """
-    use_kernel = os.environ.get("METALFAISS_USE_GEMM_KERNEL", "0") == "1"
-    if not use_kernel:
+    if not _use_kernel_flag():
         return mx.matmul(A, V)
     global _KERNEL_AV
     if _KERNEL_AV is None:
@@ -827,8 +907,7 @@ def gemm_at_b(A: mx.array, B: mx.array) -> mx.array:
     - docs/mlx/Kernel-Guide.md:120
     - docs/metal/Shader-Optimization-Tips.md:187
     """
-    use_kernel = os.environ.get("METALFAISS_USE_GEMM_KERNEL", "0") == "1"
-    if not use_kernel:
+    if not _use_kernel_flag():
         return mx.matmul(mx.transpose(A), B)
     global _KERNEL_AT_B
     if _KERNEL_AT_B is None:
@@ -838,8 +917,7 @@ def gemm_at_b(A: mx.array, B: mx.array) -> mx.array:
     k = int(B.shape[1])
     shape = mx.array([m, n, k], dtype=mx.uint32)
 
-    rect = os.environ.get("METALFAISS_GEMM_RECTSAFE", "0") == "1"
-    if rect:
+    if _rectsafe_flag():
         # Build rectsafe kernel dynamically for race-free loads
         TN, TI, TK = _TILES_ATB or _select_tile_atb()
         ker = mx.fast.metal_kernel(

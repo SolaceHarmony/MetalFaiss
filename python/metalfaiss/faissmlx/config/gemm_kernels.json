@@ -1,0 +1,10 @@
+{
+  "use_gemm_kernel": false,
+  "square_T": 16,
+  "double_buffer": false,
+  "vectorized_loads": false,
+  "pad_atb": false,
+  "rectsafe": false,
+  "tile_av": null,
+  "tile_atb": null
+}
