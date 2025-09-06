@@ -1,8 +1,7 @@
 """
-random_rotation.py - Random rotation transform for MetalFaiss
+random_rotation.py - Random rotation transform for MetalFaiss (MLX-only)
 """
 
-import numpy as np
 import mlx.core as mx
 from typing import Optional
 from .base_vector_transform import BaseVectorTransform
@@ -14,7 +13,7 @@ class RandomRotationTransform(BaseVectorTransform):
     The matrix is generated using QR decomposition of a random matrix.
     """
     
-    def __init__(self, d_in: int, d_out: Optional[int] = None, seed: Optional[int] = None):
+    def __init__(self, d_in: int, d_out: Optional[int] = None, seed: Optional[int] = None, key: Optional[object] = None):
         """Initialize random rotation transform.
         
         Args:
@@ -26,6 +25,7 @@ class RandomRotationTransform(BaseVectorTransform):
         resolved_d_out = d_out if d_out is not None else d_in
         super().__init__(d_in, resolved_d_out)
         self.seed = seed
+        self._key = key if key is not None else (mx.random.key(int(seed)) if seed is not None else None)
         self.rotation_matrix = None
         self._is_trained = False
         
@@ -38,22 +38,16 @@ class RandomRotationTransform(BaseVectorTransform):
         if x.shape[1] != self.d_in:
             raise ValueError(f"Training vectors dimension {x.shape[1]} != transform input dimension {self.d_in}")
             
-        # Set random seed
-        if self.seed is not None:
-            np.random.seed(self.seed)
-            
-        # Generate random matrix
-        A = np.random.randn(self.d_in, self.d_out).astype('float32')
-        
-        # QR decomposition to get orthogonal matrix
-        Q, R = np.linalg.qr(A)
-        
-        # Make sure Q is orthogonal
-        Q = Q.astype('float32')
-        Q = Q[:, :self.d_out]  # Take only needed columns
-        
-        # Store rotation matrix
-        self.rotation_matrix = mx.array(Q)
+        # Generate random matrix using MLX PRNG
+        if self._key is not None:
+            kA, self._key = mx.random.split(self._key, num=2)
+            A = mx.random.normal(shape=(self.d_in, self.d_out), key=kA).astype(mx.float32)
+        else:
+            A = mx.random.normal(shape=(self.d_in, self.d_out)).astype(mx.float32)
+        # QR decomposition (CPU stream per MLX docs)
+        Q, R = mx.linalg.qr(A, stream=mx.cpu)
+        Q = Q[:, : self.d_out]
+        self.rotation_matrix = Q
         self._is_trained = True
         
     def apply(self, x: mx.array) -> mx.array:

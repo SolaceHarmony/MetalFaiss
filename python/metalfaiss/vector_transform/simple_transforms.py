@@ -33,7 +33,7 @@ class RemapDimensionsTransform(BaseVectorTransform):
     def __init__(
         self,
         d_in: int,
-        d_out: int,
+        d_out_or_map: Union[int, List[int]],
         dimension_map: Optional[List[int]] = None,
         uniform: bool = True
     ):
@@ -51,6 +51,12 @@ class RemapDimensionsTransform(BaseVectorTransform):
         Raises:
             InvalidArgumentError: If dimension_map contains invalid indices
         """
+        # Support legacy usage: RemapDimensionsTransform(d_in, indices)
+        if isinstance(d_out_or_map, list):
+            d_out = len(d_out_or_map)
+            dimension_map = d_out_or_map
+        else:
+            d_out = d_out_or_map
         super().__init__(d_in, d_out)
         
         if dimension_map is not None:

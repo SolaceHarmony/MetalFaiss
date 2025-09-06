@@ -7,9 +7,8 @@ providing a common interface for all transforms.
 Original: faiss/VectorTransform.h
 """
 
-from abc import ABC, abstractmethod
+from abc import ABC
 import mlx.core as mx
-import numpy as np
 from typing import List, Optional
 from ..errors import InvalidArgumentError
 
@@ -57,7 +56,7 @@ class BaseVectorTransform(ABC):
         """
         pass
         
-    def apply(self, xs: List[List[float]]) -> List[List[float]]:
+    def apply(self, xs: List[List[float]]):
         """Apply transform to vectors.
         
         Args:
@@ -69,15 +68,18 @@ class BaseVectorTransform(ABC):
         Raises:
             RuntimeError: If transform not trained
         """
+        x = mx.array(xs)
+        # Validate input dimensionality first
+        if x.shape[1] != self.d_in:
+            raise ValueError(
+                f"Input vectors dimension {x.shape[1]} != transform input dimension {self.d_in}"
+            )
         if not self.is_trained:
             raise RuntimeError("Transform must be trained before applying")
-            
-        x = mx.array(xs)
         xt = mx.zeros((len(x), self.d_out))
         self.apply_noalloc(x, xt)
-        return xt.tolist()
+        return xt
         
-    @abstractmethod
     def apply_noalloc(self, x: mx.array, xt: mx.array) -> None:
         """Apply transform with pre-allocated output.
         
@@ -90,6 +92,7 @@ class BaseVectorTransform(ABC):
         """
         if not self.is_trained:
             raise RuntimeError("Transform must be trained before applying")
+        raise NotImplementedError("apply_noalloc must be implemented by subclasses")
             
     def reverse_transform(
         self,
@@ -111,7 +114,6 @@ class BaseVectorTransform(ABC):
             "Reverse transform not implemented for this transform"
         )
         
-    @abstractmethod
     def check_identical(self, other: 'BaseVectorTransform') -> None:
         """Check if transforms are identical.
         
@@ -176,7 +178,7 @@ class BaseLinearTransform(BaseVectorTransform):
             raise RuntimeError("Transform matrix not initialized")
             
         # Apply matrix multiply
-        mx.scatter(xt, mx.arange(len(xt)), mx.matmul(x, self.A.T))
+        xt[:] = mx.matmul(x, self.A.T)
         
         # Add bias if present
         if self.have_bias and self.b is not None:
@@ -207,7 +209,7 @@ class BaseLinearTransform(BaseVectorTransform):
             y = y - self.b
             
         # Apply transposed matrix multiply
-        mx.scatter(x, mx.arange(len(x)), mx.matmul(y, self.A))
+        x[:] = mx.matmul(y, self.A)
         
     def reverse_transform(
         self,
@@ -236,19 +238,18 @@ class BaseLinearTransform(BaseVectorTransform):
         y = mx.array(xs)
         x = mx.zeros((len(y), self.d_in))
         self.transform_transpose(y, x)
-        return x.tolist()
+        return x
         
     def set_is_orthonormal(self) -> None:
         """Check if matrix A is orthonormal."""
         if self.A is None:
             raise RuntimeError("Transform matrix not initialized")
             
-        # Compute A^T * A
-        ATA = mx.matmul(self.A.T, self.A)
-        
-        # Should be identity matrix
-        I = mx.eye(self.d_in)
-        self.is_orthonormal = mx.all(mx.abs(ATA - I) < 1e-5)
+        # For rectangular A (d_out x d_in), check row-orthonormality: A A^T = I_{d_out}
+        A = self.A * 1.0
+        AAT = mx.matmul(A, A.T)
+        I = mx.eye(AAT.shape[0])
+        self.is_orthonormal = bool(mx.all(mx.abs(AAT - I) < 1e-5))
         
     def check_identical(self, other: BaseVectorTransform) -> None:
         """Check if transforms are identical.
