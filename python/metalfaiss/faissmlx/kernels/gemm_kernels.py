@@ -287,6 +287,38 @@ def _build_at_b_kernel():
     )
 
 
+def set_gemm_tiles(av: str | Tuple[int, int] | None = None,
+                   atb: str | Tuple[int, int] | None = None) -> None:
+    """Override tile sizes and reset kernels.
+
+    Args
+    - av: "TMxT" or (TM, T) for AV kernel (TN=TK=T). If None, keep current.
+    - atb: "TNxTK" or (TN, TK) for AT_B kernel (TI fixed at 16). If None, keep current.
+    """
+    global _TILES_AV, _TILES_ATB, _KERNEL_AV, _KERNEL_AT_B
+    if av is not None:
+        if isinstance(av, str) and "x" in av:
+            tm_s, t_s = av.lower().split("x")
+            _TILES_AV = (int(tm_s), int(t_s))
+        elif isinstance(av, tuple):
+            _TILES_AV = (int(av[0]), int(av[1]))
+        _KERNEL_AV = None
+    if atb is not None:
+        if isinstance(atb, str) and "x" in atb:
+            tn_s, tk_s = atb.lower().split("x")
+            _TILES_ATB = (int(tn_s), 16, int(tk_s))
+        elif isinstance(atb, tuple):
+            _TILES_ATB = (int(atb[0]), 16, int(atb[1]))
+        _KERNEL_AT_B = None
+
+
+def get_gemm_tiles() -> Tuple[Tuple[int, int], Tuple[int, int, int]]:
+    """Return the current tile sizes: (AV(TM,T), AT_B(TN,TI,TK))."""
+    av = _TILES_AV or _select_tile_av()
+    atb = _TILES_ATB or _select_tile_atb()
+    return av, atb
+
+
 def gemm_av(A: mx.array, V: mx.array) -> mx.array:
     """Compute B = A @ V with a shared‑memory tiled Metal kernel.
 
