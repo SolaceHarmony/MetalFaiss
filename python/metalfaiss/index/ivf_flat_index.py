@@ -9,6 +9,11 @@ from .flat_index import FlatIndex
 from ..types.metric_type import MetricType
 from ..utils.search_result import SearchResult
 from ..index.index_error import IndexError
+import os
+try:
+    from ..faissmlx.kernels.ivf_kernels import ivf_list_topk_l2
+except Exception:
+    ivf_list_topk_l2 = None  # type: ignore
 
 class IVFFlatIndex(BaseIndex):
     """IVF index that stores raw vectors in inverted lists."""
@@ -110,27 +115,38 @@ class IVFFlatIndex(BaseIndex):
         for query, probe_labels in zip(x, coarse_labels):
             probe_vectors = []
             probe_ids = []
-            
+
             # Gather vectors from selected lists
             for list_id in probe_labels:
                 for vid, vec in self._invlists[list_id]:
                     probe_vectors.append(vec)
                     probe_ids.append(vid)
-                    
+
             if not probe_vectors:
                 distances.append([float('inf')] * k)
                 labels.append([0] * k)
                 continue
-                
+
             probe_vectors = mx.stack(probe_vectors)
-            if self.metric_type == MetricType.L2:
-                dists = mx.sum((probe_vectors - query) ** 2, axis=1)
+            ids_arr = mx.array(probe_ids, dtype=mx.int32)
+
+            use_kernel = (
+                self.metric_type == MetricType.L2 and
+                ivf_list_topk_l2 is not None and
+                os.environ.get("METALFAISS_USE_IVF_TOPK", "1") == "1"
+            )
+            if use_kernel:
+                vals, oks = ivf_list_topk_l2(query, probe_vectors, ids_arr, k)
+                distances.append(vals.tolist())
+                labels.append(oks.tolist())
             else:
-                dists = -mx.sum(probe_vectors * query, axis=1)
-                
-            idx = mx.argsort(dists)[:k]
-            distances.append(dists[idx].tolist())
-            labels.append([probe_ids[i] for i in idx.tolist()])
+                if self.metric_type == MetricType.L2:
+                    dists = mx.sum((probe_vectors - query) ** 2, axis=1)
+                else:
+                    dists = -mx.sum(probe_vectors * query, axis=1)
+                idx = mx.argsort(dists)[:k]
+                distances.append(dists[idx].tolist())
+                labels.append([probe_ids[i] for i in idx.tolist()])
             
         return SearchResult(distances=distances, labels=labels)
         
