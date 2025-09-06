@@ -15,7 +15,7 @@ This note documents the optimized tiled GEMM kernels used for the SVD Z‑step a
 ## Runtime Flags
 
 - `METALFAISS_USE_GEMM_KERNEL=1`: enable Metal kernels (otherwise uses `mx.matmul`)
-- `METALFAISS_GEMM_TILE_SQ`: square tile T for AV/AT_B square kernels (default `16`) — try 8/16/32
+- `METALFAISS_GEMM_TILE_SQ`: square tile T for AV/AT_B square kernels (default `16`) — try 8/16/32 (or set via JSON `square_T`)
 - `METALFAISS_GEMM_DB=1`: enable double buffering for square kernels (ping‑pong tiles)
 - `METALFAISS_GEMM_V4=1`: attempt `float4` loads when aligned; safely falls back to scalar
 - `METALFAISS_GEMM_PAD_ATB=1`: pad AT_B tiles’ second dimension (`[T][T+1]`) to reduce bank conflicts
@@ -68,6 +68,8 @@ When changing flags between runs, call `reset_gemm_kernels()` to rebuild variant
 - File: `python/metalfaiss/faissmlx/config/gemm_kernels.json`
 - Keys: `use_gemm_kernel`, `square_T`, `double_buffer`, `vectorized_loads`, `pad_atb`, `rectsafe`, `tile_av`, `tile_atb`
 - Env still overrides JSON; to use a custom file, set `METALFAISS_GEMM_CONFIG_JSON=/path/to/gemm_kernels.json`.
+
+
 
 ## Validation
 
