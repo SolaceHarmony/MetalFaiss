@@ -14,9 +14,8 @@ Design
   arithmetic intensity; barriers synchronize phases.
 
 Tile selection
-- Square kernels use `METALFAISS_GEMM_TILE_SQ` (default 16).
-- Non-square cooperative tile envs (`METALFAISS_GEMM_TILE_AV`, `METALFAISS_GEMM_TILE_ATB`)
-  are only used by the experimental rectsafe AT_B path.
+- Square kernels use `METALFAISS_GEMM_TILE_SQ` (default 16) or JSON `square_T`.
+- Rectsafe tiles are configured via JSON (`tile_av`, `tile_atb`) or tuning module, not via env.
 
 Optimization Notes
 - Coalesced loads: tiles are staged into `threadgroup` arrays and reused across
@@ -147,15 +146,16 @@ def _detect_device_name() -> str:
 
 
 def _select_tile_av() -> Tuple[int, int]:
-    """Select (TM, T) for AV kernel where TN=TK=T.
+    """Select (TM, T) for AV kernel (rectsafe path only).
 
-    Env override: METALFAISS_GEMM_TILE_AV="TMxT" (e.g., 32x8).
+    JSON config `tile_av` ("TMxT") is preferred; tuning fallback applies next.
     Defaults: M3 → (32, 8); otherwise (16, 16).
     """
-    env = _get_cfg_str("METALFAISS_GEMM_TILE_AV", "tile_av") or os.environ.get("METALFAISS_GEMM_TILE")
-    if env:
+    cfg = _load_gemm_cfg()
+    val = cfg.get("tile_av")
+    if isinstance(val, str) and "x" in val:
         try:
-            tm_s, t_s = env.lower().split("x")
+            tm_s, t_s = val.lower().split("x")
             tm, t = int(tm_s), int(t_s)
             if tm * t <= 1024 and tm > 0 and t > 0:
                 return tm, t
@@ -179,15 +179,16 @@ def _select_tile_av() -> Tuple[int, int]:
 
 
 def _select_tile_atb() -> Tuple[int, int, int]:
-    """Select (TN, TI, TK) for AT_B kernel.
+    """Select (TN, TI, TK) for AT_B kernel (rectsafe path only).
 
-    Env override: METALFAISS_GEMM_TILE_ATB="TNxTK"; TI fixed at 16.
+    JSON config `tile_atb` ("TNxTK"); TI fixed at 16.
     Defaults: M3 → (8, 16, 32); otherwise (16, 16, 16).
     """
-    env = _get_cfg_str("METALFAISS_GEMM_TILE_ATB", "tile_atb")
-    if env:
+    cfg = _load_gemm_cfg()
+    val = cfg.get("tile_atb")
+    if isinstance(val, str) and "x" in val:
         try:
-            tn_s, tk_s = env.lower().split("x")
+            tn_s, tk_s = val.lower().split("x")
             tn, tk = int(tn_s), int(tk_s)
             if tn * tk <= 1024 and tn > 0 and tk > 0:
                 return tn, 16, tk
