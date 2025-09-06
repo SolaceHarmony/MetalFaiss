@@ -125,7 +125,22 @@ Both follow the header/body and explicit launch size patterns and pass `shape=[m
 - Use branchless guards to avoid NaNs/inf; clamp tiny denominators.
 - Where fp64 would help, consider compensated sums (e.g., a Kahan MLX helper) or limb techniques for critical inner products; keep them off the hot path unless needed.
 
-10) Integration With Compiled MLX
+10) Performance Considerations & Pitfalls
+
+High-level performance tuning for Metal kernels involves a few key areas. For a deep dive, see [Shader-Optimization-Tips.md](./../metal/Shader-Optimization-Tips.md) and [WWDC16-Optimization-Patterns.md](./WWDC16-Optimization-Patterns.md).
+
+- **Data Types:** Use the smallest practical data type (`half`, `short`) to improve register usage and ALU throughput.
+- **Memory Access:** Avoid performance pitfalls like dynamically-indexed stack arrays, which can have a catastrophic impact. Ensure loads and stores are coalesced.
+- **Integer Arithmetic:** Division or modulus by non-compile-time constants is extremely slow. Pre-calculate where possible.
+- **Control Flow:** Prefer uniform control flow and use ternary operators over `if/else` where possible to avoid divergence.
+
+11) Streams & Overlap (CPU/GPU)
+
+- Use explicit streams to place independent work on separate queues (CPU vs GPU) and overlap compute with data prep; rely on MLX’s automatic cross‑stream dependency handling. Keep stream‑level sync to boundaries (e.g., logging, checkpoints).
+- Pair compute streams with MLX Data streams (prefetch) to pipeline I/O/decoding and keep compute fed.
+- See Streams-Guide: `docs/mlx/Streams-Guide.md` for a plain‑speech walkthrough and examples.
+
+12) Integration With Compiled MLX
 
 - `mx.compile` can fuse MLX graphs (e.g., the MLX path of SVD Z‑step) and shrink Python overhead; shapes must be stable.
 - Compiling won’t change the inner body of a custom Metal kernel, but a compiled wrapper can still reduce launch overhead when driving many kernels.
@@ -133,4 +148,5 @@ Both follow the header/body and explicit launch size patterns and pass `shape=[m
 References
 
 - This repo: Kernel-Guide.md, Metal-Primer.md, and working kernels in `python/metalfaiss/faissmlx/kernels/`.
+- Spot tests: `docs/mlx/Spot-Tests.md` — hands-on microbenchmarks to validate patterns in your environment.
 - Ember ML backend (QR/Cholesky/SVD kernels) for examples of reductions, threading, and safety checks.

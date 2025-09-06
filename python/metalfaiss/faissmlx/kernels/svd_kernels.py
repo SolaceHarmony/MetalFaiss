@@ -1,12 +1,21 @@
 """
-svd_kernels.py - Metal kernels (MLX JIT) for SVD subspace power-iteration
+SVD subspace power-iteration kernels (baseline)
 
-Provides a kernel to compute Z = A^T (A V) for a block of vectors V.
-This is a correct baseline that can be tiled and optimized further.
+This module provides a simple, correct baseline kernel to compute:
+    Z = Aᵀ (A V)
+for a block of vectors V. It is intentionally naive (nested loops) and
+serves as a contrast to the tiled two-kernel approach in `gemm_kernels.py`.
 
-Usage:
+Notes
+- The baseline uses a 1D launch over `n*k` and maps indices via `/` and `%` by
+  a runtime `k`. This is pedagogical; the optimized path avoids such divides by
+  using a 2D grid and shared-memory tiles.
+- For real workloads, prefer the tiled approach (A@V then Aᵀ@B) exposed in
+  `python/metalfaiss/faissmlx/kernels/gemm_kernels.py`.
+
+Usage
     from .svd_kernels import power_iter_step
-    Z = power_iter_step(A, V)  # shapes: A (m,n), V (n,k), Z (n,k)
+    Z = power_iter_step(A, V)  # A (m,n), V (n,k), Z (n,k)
 """
 
 from typing import Tuple
@@ -46,6 +55,14 @@ _KERNEL_AT_A_V = None
 
 
 def _build_at_a_v_kernel():
+    """Create the baseline kernel Z = Aᵀ (A V).
+
+    Implementation details
+    - Inputs: `A (m,n)`, `V (n,k)`, `shape=[m,n,k]`
+    - Output: `Z (n,k)`
+    - Launch: 1D over `n*k`. Uses `/` and `%` to derive (row,col) indices.
+      This is slower than a 2D grid and kept for demonstration.
+    """
     return mx.fast.metal_kernel(
         name="svd_at_a_v",
         input_names=["A", "V", "shape"],
@@ -57,14 +74,18 @@ def _build_at_a_v_kernel():
 
 
 def power_iter_step(A: mx.array, V: mx.array) -> mx.array:
-    """Compute Z = A^T (A V) using a Metal kernel.
+    """Compute one Z-step for block power iteration: Z = Aᵀ (A V).
 
-    Args:
-        A: MLX array of shape (m, n)
-        V: MLX array of shape (n, k)
+    Parameters
+    - `A (m,n)`
+    - `V (n,k)`
 
-    Returns:
-        Z: MLX array of shape (n, k)
+    Returns
+    - `Z (n,k)`
+
+    Notes
+    - This baseline kernel is mostly for correctness and teaching. For speed,
+      use the tiled kernels in `gemm_kernels.py` via `svd.topk_svd(..., use_kernel=True)`.
     """
     global _KERNEL_AT_A_V
     if _KERNEL_AT_A_V is None:
@@ -88,4 +109,3 @@ def power_iter_step(A: mx.array, V: mx.array) -> mx.array:
         threadgroup=threadgroup,
     )
     return Z
-

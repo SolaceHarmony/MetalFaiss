@@ -69,12 +69,20 @@ The GPU has dedicated hardware to preload buffers, which can significantly impro
     *   Ensure buffer access is indexed directly by `[[vertex_id]]` or `[[instance_id]]`.
     *   Use vertex descriptors (`MTLVertexDescriptor`) where possible to formalize your data layout.
 
+Why it matters (teacher’s note)
+- Preloading lets dedicated units hide memory latency for data the compiler knows is bounded and repeatedly accessed. By putting small, reused inputs into `constant` structs and indexing vertex buffers via the built-in IDs, you let hardware fetchers and caches do their job.
+- Exercise: Switch a fragment parameter from `const device T*` + separate `count` to a bounded `constant struct`. Compare GPU time and Xcode counters (buffer read transactions).
+
 ### 1.3. Fragment Function Resource Writes
 
-*   Writing to resources (buffers, textures) from a fragment shader can partially disable **hidden surface removal**, a key optimization where the GPU avoids shading pixels that aren't visible.
+*   Writing to resources (buffers, textures) from a fragment shader can partially disable **hidden surface removal**, a key optimization where the GPU avoids shading pixels that aren't visible. (This capability was introduced around the WWDC16 timeframe.)
 *   A fragment performing a write cannot be occluded by later fragments.
 *   To mitigate this, use the `[[early_fragment_tests]]` attribute in your fragment function signature. This allows the depth/stencil test to reject fragments *before* they execute, which can restore some of the lost performance.
 *   **Rendering Order:** To maximize early rejection, draw objects with fragment writes **after** opaque objects. If they also update depth, sort them front-to-back.
+
+Why it matters (teacher’s note)
+- Hidden surface removal saves a lot of fragment work by skipping occluded pixels. A fragment that writes can’t be trivially discarded later because the write may have side effects. `[[early_fragment_tests]]` restores depth/stencil rejection before execution, rescuing most of the lost benefit when your test rejects.
+- Exercise: Render two overlapping quads where the top quad writes to a storage texture. Measure GPU time with and without `[[early_fragment_tests]]` and when drawing the writer before/after opaque geometry.
 
 ### 1.4. Compute Kernel Organization
 
@@ -92,7 +100,10 @@ The GPU has dedicated hardware to preload buffers, which can significantly impro
       }
       ```
 *   **Barriers:** Use barriers with the smallest possible scope.
-    *   `simdgroup_barrier` is faster than `threadgroup_barrier` for threadgroups smaller than or equal to the SIMD group size. A `threadgroup_barrier` is not needed for SIMD-width threadgroups.
+    *   `simdgroup_barrier` is faster than `threadgroup_barrier` for threadgroups smaller than or equal to the SIMD group size. A `threadgroup_barrier` is not needed for SIMD-width threadgroups, making it a more efficient choice when applicable.
+
+Teaching tip
+- Use `simdgroup_barrier` only when communication stays within a single SIMD group and you aren’t relying on threadgroup memory written by other SIMD groups. If any data crosses SIMD-group boundaries (typical for 16×16 tiles), use `threadgroup_barrier`.
 
 ## 2. Tuning Shader Code
 
@@ -102,6 +113,7 @@ The GPU has dedicated hardware to preload buffers, which can significantly impro
 *   **Use the smallest possible data type.** `half` and `short` are faster and use fewer registers, improving thread occupancy.
 *   Energy efficiency: `half` < `float` < `short` < `int`.
 *   Use `half` for texture reads, interpolants, and general math where its precision (`6.1 x 10^-5` to `65504`) is sufficient.
+    *   **Warning:** Be mindful of the limitations. For example, writing `65535` as a `half` will result in infinity.
 *   Avoid `float` literals (e.g., `2.0`) in `half` precision operations; use `half` literals (`2.0h`).
     ```cpp
     // Bad: promotes a and b to float
@@ -112,11 +124,22 @@ The GPU has dedicated hardware to preload buffers, which can significantly impro
     ```
 *   `char` is not natively supported for arithmetic and may result in extra instructions.
 
+Pattern: half for I/O, float to accumulate
+- Read/store in `half` to reduce bandwidth, but accumulate in `float` for stability. Convert once at the boundary.
+  ```cpp
+  // Read inputs as half, widen to float for math
+  half ha = tex.sample(s, uv).x;
+  float a = float(ha);
+  float acc = fma(a, b, acc);
+  // ... after reduction
+  out[i] = half(acc); // only if the result tolerates half
+  ```
+
 ### 2.2. Arithmetic
 
 *   **Built-ins:** Use built-in functions like `abs()`, `saturate()`, and `fma()` (fused multiply-add). Modifiers like negate (`-x`) are often free.
 *   **Scalar Architecture:** A8 and later GPUs are scalar. The compiler splits vector operations. Do not waste time manually vectorizing code that isn't naturally vector-based.
-*   **Ternary Operators:** The `select` instruction (ternary operator `? :`) is very fast. Prefer it over creative solutions like multiplying by 0 or 1.
+*   **Ternary Operators:** The `select` instruction (ternary operator `? :`) is very fast on A8 and later GPUs. Prefer it over creative solutions like multiplying by 0 or 1.
     ```cpp
     // Slow: fakes a ternary op
     if (foo) m = 0.0h; else m = 1.0h;
@@ -137,7 +160,10 @@ The GPU has dedicated hardware to preload buffers, which can significantly impro
     constant int width [[ function_constant(0) ]];
     int onPos2 = vertexIn[vertex_id] / width;
     ```
-*   **Fast Math:** Enabled by default in Metal. It provides significant performance gains by using faster, less precise built-ins. If you must disable it, use `fma()` to regain some performance.
+*   **Fast Math:** Enabled by default in Metal. It provides significant performance gains by using faster, less precise built-ins. If you must disable it, use `fma()` to regain some performance, as disabling fast-math prohibits many compiler optimizations.
+
+Teaching note: what fast‑math changes
+- Fast‑math relaxes IEEE constraints, enabling instruction selection and reassociation that often fuses ops (`fma`) and simplifies divisions. If you must disable it for numerical reasons, isolate those regions and keep the rest of the kernel under fast‑math.
 
 ### 2.3. Control Flow
 
@@ -147,7 +173,7 @@ The GPU has dedicated hardware to preload buffers, which can significantly impro
 
 ### 2.4. Memory Access
 
-*   **Stack Access:** Avoid dynamically indexed stack arrays where the array itself is not a compile-time constant. This can have a catastrophic performance impact.
+*   **Stack Access:** Avoid dynamically indexed stack arrays where the array itself is not a compile-time constant. The performance cost can be "catastrophic," with one real-world app seeing a 30% slowdown from a single 32-byte array.
     ```cpp
     // Bad: 'tmp' is not a compile-time constant array, and 'c' is a dynamic index.
     // This can have a catastrophic performance impact.
@@ -161,6 +187,27 @@ The GPU has dedicated hardware to preload buffers, which can significantly impro
     *   One large vector load/store is faster than multiple scalar ones.
     *   Arrange data in structs to be adjacent to allow the compiler to vectorize loads.
     *   Use `int` or smaller types for device memory addressing, not `uint`.
+    
+    Before/after: struct layout for vectorized loads
+    ```cpp
+    // Bad: forces two scalar loads (a and c are far apart)
+    struct Foo { float a; float b[7]; float c; };
+    float sum_mul(device const Foo* x, uint n) {
+        float s = 0;
+        for (uint i = 0; i < n; ++i) s += x[i].a * x[i].c;
+        return s;
+    }
+    // Better: pack to enable a single vector load
+    struct Foo2 { float2 a; float b[7]; };
+    float sum_mul2(device const Foo2* x, uint n) {
+        float s = 0;
+        for (uint i = 0; i < n; ++i) s += x[i].a.x * x[i].a.y;
+        return s;
+    }
+    ```
+    
+    Measure it
+    - Use Xcode GPU capture to compare memory transactions and shader time for the two layouts on the same workload. Expect fewer scalar loads and improved throughput for the packed layout.
 *   **Latency Hiding:**
     *   GPUs hide memory latency by switching to other threads. Higher register usage reduces the number of active threads (occupancy), making the shader more sensitive to latency.
     *   Initiate long-latency operations (like texture samples) as early as possible. This allows the GPU to issue the memory requests and switch to other threads, hiding the latency. Avoid structuring code in a way that creates unnecessary dependencies between these operations.

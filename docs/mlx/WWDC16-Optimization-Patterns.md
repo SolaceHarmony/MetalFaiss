@@ -52,7 +52,7 @@ This guide translates concrete shader optimization patterns from Apple's “Adva
 
 - Coalesce loads/stores; stage tiles in TG memory.
 - Arrange structs for vectorizable access (SoA > AoS in many kernels).
-- Avoid dynamically‑indexed, non‑constant stack arrays (compilers unroll fixed‑size loops to remove dynamic indexing).
+- Avoid dynamically‑indexed, non‑constant stack arrays. The performance cost can be **catastrophic**. The session noted a real-world app that lost **30% of its performance** due to a single 32-byte dynamically indexed array. Compilers may unroll fixed-size loops to eliminate this, but it's a major pitfall to avoid.
 - Use `int` (or smaller) for device memory addressing; prefer signed `int` over `uint` in index math to avoid extra instructions.
 
 8) Latency, Occupancy, And Hiding

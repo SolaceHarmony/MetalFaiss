@@ -92,6 +92,8 @@ Pitfalls
   - stage per-block `c` into global memory and design the second phase to tolerate partially-filled tiles.
 - Don’t rebuild kernels per call; pass shapes/flags in buffers instead.
 - Keep kernel argument counts small — pack params.
+- **Dynamically-indexed stack arrays** where the array itself is not a compile-time constant can have a "catastrophic" performance impact. Avoid them.
+- **Integer division/modulus** by a denominator that is not a compile-time constant is extremely slow. Pre-calculate reciprocals or use bit shifts where possible.
 
 Fusing Work (When Safe)
 

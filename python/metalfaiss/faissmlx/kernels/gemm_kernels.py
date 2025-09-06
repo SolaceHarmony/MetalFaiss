@@ -1,17 +1,32 @@
 """
-gemm_kernels.py - Tiled GEMM kernels (MLX JIT/Metal)
+Tiled GEMM kernels (MLX + Metal)
 
-Provides shared-memory tiled kernels for:
-- B = A (m,n) x V (n,k) -> (m,k)
-- Z = A^T (n,m) x B (m,k) -> (n,k)
+Kernels
+- `gemm_av`: B = A (m,n) × V (n,k) -> (m,k)
+- `gemm_at_b`: Z = Aᵀ (n,m) × B (m,k) -> (n,k)
 
-These are specialized for row-contiguous float32 arrays and use explicit
-grid/threadgroup sizing with body-only kernel sources and a header that
-contains includes and namespace — matching MLX fast.metal_kernel contract.
+Design
+- Body-only kernel sources with includes in `header` match the
+  `mx.fast.metal_kernel` contract (no function signatures in `source`).
+- Parameters (m, n, k) are passed in a small `shape` buffer to avoid
+  recompilation across calls.
+- 2D tiling (16×16) with threadgroup shared memory enables coalesced loads and
+  high arithmetic intensity; barriers synchronize phases.
 
-Notes:
-- Tile sizes chosen for Apple GPU execution width (32) and ≤1024 threads/tg.
-- Default tiles: TM=16, TN=16, TK=16 (256 threads/tg). We may tune later.
+Optimization Notes
+- Coalesced loads: tiles are staged into `threadgroup` arrays and reused across
+  inner-loop FMAs.
+- fma accumulation: inner loops use `fma` to fuse multiply-add and exploit
+  fast-math where available.
+- Barrier scope: `threadgroup_barrier` is used since tiles are shared across
+  multiple SIMD groups. Prefer `simdgroup_barrier` only for warp-local exchanges.
+- Avoid integer division/modulus in hot loops: kernels use 2D grid + tile math
+  instead of computing indices via `/` and `%` on runtime values.
+
+References
+- docs/mlx/Kernel-Guide.md:120
+- docs/mlx/Comprehensive-MLX-Metal-Guide.md:1
+- docs/metal/Shader-Optimization-Tips.md:7
 """
 
 from __future__ import annotations
@@ -146,6 +161,15 @@ _KERNEL_AT_B = None
 
 
 def _build_av_kernel():
+    """Create the tiled kernel for B = A × V.
+
+    Implementation details
+    - Inputs: `A (m,n)`, `V (n,k)`, `shape=[m,n,k]` (uint32)
+    - Output: `C (m,k)`
+    - Launch: 2D grid of (k/16, m/16) with 16×16 threads per threadgroup
+    - Uses threadgroup memory tiles `Asub[16][16]` and `Vsub[16][16]` and
+      explicit `threadgroup_barrier` between load/accumulate phases.
+    """
     return mx.fast.metal_kernel(
         name="gemm_av_tiled",
         input_names=["A", "V", "shape"],
@@ -157,6 +181,16 @@ def _build_av_kernel():
 
 
 def _build_at_b_kernel():
+    """Create the tiled kernel for Z = Aᵀ × B.
+
+    Implementation details
+    - Inputs: `A (m,n)`, `B (m,k)`, `shape=[m,n,k]`
+    - Output: `Z (n,k)`
+    - Launch: 2D grid of (k/16, n/16) with 16×16 threads per threadgroup
+    - Uses threadgroup memory tiles of Aᵀ and B along the shared m-dimension;
+      explicit `threadgroup_barrier` between load/accumulate phases; `fma` in
+      the inner loop.
+    """
     return mx.fast.metal_kernel(
         name="gemm_at_b_tiled",
         input_names=["A", "B", "shape"],
@@ -168,13 +202,23 @@ def _build_at_b_kernel():
 
 
 def gemm_av(A: mx.array, V: mx.array) -> mx.array:
-    """Compute B = A @ V with tiled Metal kernel.
+    """Compute B = A @ V with a shared‑memory tiled Metal kernel.
 
-    Args:
-        A: (m, n)
-        V: (n, k)
-    Returns:
-        B: (m, k)
+    Parameters
+    - `A (m,n)`, row‑contiguous float32
+    - `V (n,k)`, row‑contiguous float32
+
+    Returns
+    - `B (m,k)`
+
+    Optimization
+    - 2D tiles (16×16), coalesced loads, `threadgroup_barrier` between phases,
+      `fma` accumulation in the inner loop. Avoids runtime integer division by
+      using 2D grid math.
+
+    See also
+    - docs/mlx/Kernel-Guide.md:120
+    - docs/metal/Shader-Optimization-Tips.md:148
     """
     global _KERNEL_AV
     if _KERNEL_AV is None:
@@ -201,13 +245,22 @@ def gemm_av(A: mx.array, V: mx.array) -> mx.array:
 
 
 def gemm_at_b(A: mx.array, B: mx.array) -> mx.array:
-    """Compute Z = A.T @ B with tiled Metal kernel.
+    """Compute Z = A.T @ B with a shared‑memory tiled Metal kernel.
 
-    Args:
-        A: (m, n)
-        B: (m, k)
-    Returns:
-        Z: (n, k)
+    Parameters
+    - `A (m,n)`, row‑contiguous float32
+    - `B (m,k)`, row‑contiguous float32
+
+    Returns
+    - `Z (n,k)`
+
+    Optimization
+    - 2D tiles (16×16), explicit staging of Aᵀ and B tiles, `threadgroup_barrier`
+      between phases, `fma` accumulation; avoids runtime `%` and `/` in hot loops.
+
+    See also
+    - docs/mlx/Kernel-Guide.md:120
+    - docs/metal/Shader-Optimization-Tips.md:187
     """
     global _KERNEL_AT_B
     if _KERNEL_AT_B is None:

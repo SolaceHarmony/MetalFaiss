@@ -1,8 +1,24 @@
 """
-svd.py - MLX-only tiled SVD via block power iteration
+Top‑k SVD via subspace (block) power iteration
 
-Provides a GPU-friendly top-k SVD using subspace (block) power iteration.
-This uses only MLX ops (matmul, norms, our MLX QR) and keeps compute on GPU.
+Overview
+- MLX path: uses `mx.matmul` for AV and AᵀB plus MLX QR for re‑orthonormalization.
+- Kernel path: uses shared‑memory tiled Metal kernels for AV and AᵀB (see
+  `faissmlx/kernels/gemm_kernels.py`), optionally in bands and with multiple
+  MLX streams.
+
+Tuning & Controls
+- `use_kernel`: force the kernel path (else autoswitch by size/device via `dispatch.choose_svd_impl`).
+- `use_compile`: try `mx.compile` wrapper for the MLX iteration step when available.
+- Env vars:
+  - `METALFAISS_USE_SVD_KERNEL=1` forces kernel path.
+  - `METALFAISS_SVD_BAND=<B>` enables banded Z‑step with band width B for the kernel path.
+  - `METALFAISS_SVD_STREAMS=<S>` runs banded Z‑step across S MLX streams (fan‑out/fan‑in).
+
+References
+- docs/mlx/Kernel-Guide.md:1
+- docs/research/Journal.md:1
+- docs/metal/Shader-Optimization-Tips.md:7
 """
 
 from typing import Tuple
@@ -15,9 +31,13 @@ import os
 _COMPILED_MLX_ITER = None
 
 def _mlx_power_iter_once(A: mx.array, V: mx.array) -> mx.array:
-    """One power-iteration step using MLX GEMMs; returns re-orthonormalized V.
+    """One power‑iteration step using MLX GEMMs.
 
-    Shapes: A (m,n), V (n,k) -> V_next (n,k)
+    Parameters
+    - `A (m,n)`, `V (n,k)`
+
+    Returns
+    - `V_next (n,k)` after re‑orthonormalization via QR
     """
     AV = mx.matmul(A, V)
     Z = mx.matmul(mx.transpose(A), AV)
@@ -31,16 +51,20 @@ def _kernel_zstep_banded(
     band_size: int,
     streams: int | None = None,
 ) -> mx.array:
-    """Compute Z = A^T (A V) by column bands, optionally across multiple streams.
+    """Kernel Z‑step by bands, optionally across multiple MLX streams.
 
-    Args:
-        A: (m, n)
-        V: (n, k)
-        band_size: number of columns per band
-        streams: if None or <=1, run serially; otherwise create this many streams and
-                 round-robin bands across them.
-    Returns:
-        Z: (n, k)
+    Parameters
+    - `A (m,n)`, `V (n,k)`
+    - `band_size`: columns per band (<=0 or >=k falls back to monolithic tiled)
+    - `streams`: None or <=1 for serial; else create `streams` and round‑robin bands
+
+    Returns
+    - `Z (n,k)`
+
+    Trade‑offs
+    - Banded execution can improve cache locality and reduce peak memory, often
+      winning for small k. Streams can overlap work at larger sizes but may lose
+      to contention; prefer small S (2–4) and measure.
     """
     n, k = int(V.shape[0]), int(V.shape[1])
     if band_size <= 0 or band_size >= k:
@@ -83,15 +107,21 @@ def topk_svd(
     use_compile: bool = False,
     band_size: int | None = None,
 ) -> Tuple[mx.array, mx.array, mx.array]:
-    """Approximate top-k SVD of A using block power iteration.
+    """Approximate top‑k SVD of A using block power iteration.
 
-    Args:
-        A: (m, n) matrix
-        k: number of leading singular vectors/values to compute (k <= min(m,n))
-        iters: number of subspace iteration steps
+    Parameters
+    - `A (m,n)`, `k ≤ min(m,n)`, `iters ≥ 1`
+    - `use_kernel`: use the kernel Z‑step (else autoswitch via dispatch)
+    - `use_compile`: try `mx.compile` for MLX loop
+    - `band_size`: optional band width for kernel path
 
-    Returns:
-        U: (m, k), S: (k,), Vt: (k, n)
+    Returns
+    - `U (m,k)`, `S (k,)`, `Vt (k,n)`
+
+    Notes
+    - Kernel path performs Z via `gemm_av` then `gemm_at_b`. If `band_size` is
+      set (or `METALFAISS_SVD_BAND`), the Z‑step runs in bands; `METALFAISS_SVD_STREAMS`
+      can distribute bands across multiple MLX streams.
     """
     m, n = int(A.shape[0]), int(A.shape[1])
     k = min(k, m, n)

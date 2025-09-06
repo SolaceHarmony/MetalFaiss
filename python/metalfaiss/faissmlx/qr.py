@@ -1,8 +1,18 @@
 """
-qr.py - QR decomposition helpers for MLX
+QR decomposition helpers (MLX + optional kernels)
 
-This module provides:
-- pure_mlx_qr: Modified Gram–Schmidt QR implemented with MLX ops (runs on GPU).
+Exports
+- `pure_mlx_qr`: Modified Gram–Schmidt QR implemented with MLX ops (GPU‑resident).
+
+Kernel Integration
+- Projection/update steps can optionally use Metal kernels (`qr_kernels.py`) for
+  speed when vectors are long or many columns are involved.
+- Selection is controlled by heuristics (`dispatch.choose_qr_impl`) and env var:
+  `METALFAISS_USE_QR_KERNEL=1` to force kernel projections.
+
+References
+- docs/mlx/Comprehensive-MLX-Metal-Guide.md:1
+- docs/metal/Shader-Optimization-Tips.md:7
 """
 
 from typing import Tuple
@@ -12,14 +22,19 @@ from .kernels.qr_kernels import project_coeffs, update_vector
 from .dispatch import choose_qr_impl
 
 def pure_mlx_qr(A: mx.array) -> Tuple[mx.array, mx.array]:
-    """QR via Modified Gram–Schmidt using only MLX ops.
+    """Modified Gram–Schmidt QR using only MLX ops (GPU‑resident).
 
-    Args:
-        A: (m, n) matrix (float32 preferred)
+    Parameters
+    - `A (m,n)` (float32 preferred)
 
-    Returns:
-        Q: (m, m) with first n columns forming orthonormal basis of A's columns
-        R: (m, n) upper-triangular
+    Returns
+    - `Q (m,m)`: first `n` columns form an orthonormal basis for `A`’s columns
+    - `R (m,n)`: upper‑triangular
+
+    Notes
+    - Performs two‑pass re‑orthogonalization for stability.
+    - For `k>0` panel steps, projection/update can be done with Metal kernels
+      when `METALFAISS_USE_QR_KERNEL=1` or heuristics select the kernel path.
     """
     m, n = int(A.shape[0]), int(A.shape[1])
     K = min(m, n)
