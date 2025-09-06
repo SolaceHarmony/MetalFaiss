@@ -31,6 +31,41 @@ with mx.stream(s_gpu):
 mx.synchronize(s_gpu)
 ```
 
+Callbacks without blocking the UI or other streams
+- Wait on a specific stream in the background, then fire a host callback. This scopes the wait and keeps other streams running.
+
+```python
+from concurrent.futures import ThreadPoolExecutor
+from python.metalfaiss.utils.streams import on_stream_complete
+
+s_gpu = mx.new_stream(mx.gpu)
+
+def on_done():
+    print("gpu stream finished a step")
+
+# Wait in a worker, then call the callback
+on_stream_complete(s_gpu, on_done, executor=ThreadPoolExecutor(max_workers=1))
+```
+
+Asyncio integration
+- If you use an async app loop, do the wait in `run_in_executor` to avoid blocking the event loop.
+
+```python
+import asyncio
+from python.metalfaiss.utils.streams import on_stream_complete_async
+
+await on_stream_complete_async(s_gpu, lambda: print("step done"))
+```
+
+Trigger by array evaluation
+- When the trigger is "these results are ready", evaluate them in a worker thread, then call the callback.
+
+```python
+from python.metalfaiss.utils.streams import after_eval
+
+future = after_eval([y], lambda: print("y ready"))
+```
+
 Pipelines and prefetch
 - Combine compute streams with MLX Data streams to keep the GPU fed while the CPU decodes and augments batches.
 - Treat the data path as a stream early, then prefetch.
@@ -65,6 +100,9 @@ Checklist
 - Use data streams with prefetch to keep compute streams busy.
 - Synchronize only where results cross program boundaries.
 - Rely on MLX’s cross‑stream dependency tracking rather than adding global fences.
+
+Where to find the helpers
+- `python/metalfaiss/utils/streams.py` provides `on_stream_complete`, `on_stream_complete_async`, and `after_eval` so you don’t have to re-write the patterns.
 
 Common pitfalls
 - Letting everything fall onto the default stream (lost overlap, hidden contention).
