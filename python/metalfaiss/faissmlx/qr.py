@@ -1,14 +1,12 @@
 """
-QR decomposition helpers (MLX + optional kernels)
+QR decomposition helpers (production: kernel-accelerated projections)
 
 Exports
-- `pure_mlx_qr`: Modified Gram–Schmidt QR implemented with MLX ops (GPU‑resident).
+- `pure_mlx_qr`: Modified Gram–Schmidt QR using MLX ops with kernel projections.
 
-Kernel Integration
-- Projection/update steps can optionally use Metal kernels (`qr_kernels.py`) for
-  speed when vectors are long or many columns are involved.
-- Selection is controlled by heuristics (`dispatch.choose_qr_impl`) and env var:
-  `METALFAISS_USE_QR_KERNEL=1` to force kernel projections.
+Notes
+- Production path always uses Metal kernels for projection/update steps
+  (`qr_kernels.py`), as they measured fastest for tall matrices.
 
 References
 - docs/mlx/Comprehensive-MLX-Metal-Guide.md:1
@@ -19,7 +17,6 @@ from typing import Tuple
 import os
 import mlx.core as mx
 from .kernels.qr_kernels import project_coeffs, update_vector
-from .dispatch import choose_qr_impl
 
 def pure_mlx_qr(A: mx.array) -> Tuple[mx.array, mx.array]:
     """Modified Gram–Schmidt QR using only MLX ops (GPU‑resident).
@@ -33,8 +30,7 @@ def pure_mlx_qr(A: mx.array) -> Tuple[mx.array, mx.array]:
 
     Notes
     - Performs two‑pass re‑orthogonalization for stability.
-    - For `k>0` panel steps, projection/update can be done with Metal kernels
-      when `METALFAISS_USE_QR_KERNEL=1` or heuristics select the kernel path.
+    - Projection/update use kernel-accelerated paths.
     """
     m, n = int(A.shape[0]), int(A.shape[1])
     K = min(m, n)
@@ -48,21 +44,10 @@ def pure_mlx_qr(A: mx.array) -> Tuple[mx.array, mx.array]:
         # Subtract projections onto previous Q columns (double re-orthogonalization)
         if k > 0:
             Qk = Q[:, :k]                               # (m, k)
-            impl = None
-            if os.environ.get("METALFAISS_USE_QR_KERNEL", "0") == "1":
-                impl = "KERNEL_PROJ"
-            else:
-                impl = choose_qr_impl(m, k)
-            if impl == "KERNEL_PROJ":
-                c1 = project_coeffs(Qk, v)
-                v = update_vector(Qk, c1, v)
-                c2 = project_coeffs(Qk, v)
-                v = update_vector(Qk, c2, v)
-            else:
-                c1 = mx.matmul(mx.transpose(Qk), v)         # (k,)
-                v = v - mx.matmul(Qk, c1)
-                c2 = mx.matmul(mx.transpose(Qk), v)
-                v = v - mx.matmul(Qk, c2)
+            c1 = project_coeffs(Qk, v)
+            v = update_vector(Qk, c1, v)
+            c2 = project_coeffs(Qk, v)
+            v = update_vector(Qk, c2, v)
             R[:k, k] = c1 + c2
         # Normalize
         rkk = mx.sqrt(mx.sum(v * v))

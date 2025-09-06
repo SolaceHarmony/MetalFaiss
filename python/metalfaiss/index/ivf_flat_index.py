@@ -131,23 +131,12 @@ class IVFFlatIndex(BaseIndex):
             probe_vectors = mx.stack(probe_vectors)
             ids_arr = mx.array(probe_ids, dtype=mx.int32)
 
-            use_kernel = (
-                self.metric_type == MetricType.L2 and
-                ivf_list_topk_l2 is not None and
-                ivf_fused_enabled(False)
-            )
-            if use_kernel:
-                vals, oks = ivf_list_topk_l2(query, probe_vectors, ids_arr, k)
-                distances.append(vals.tolist())
-                labels.append(oks.tolist())
-            else:
-                if self.metric_type == MetricType.L2:
-                    dists = mx.sum((probe_vectors - query) ** 2, axis=1)
-                else:
-                    dists = -mx.sum(probe_vectors * query, axis=1)
-                idx = mx.argsort(dists)[:k]
-                distances.append(dists[idx].tolist())
-                labels.append([probe_ids[i] for i in idx.tolist()])
+            # Production: always use fused IVF top‑k kernel for L2
+            if self.metric_type != MetricType.L2 or ivf_list_topk_l2 is None:
+                raise RuntimeError("IVFFlatIndex: production path expects L2 and fused kernel available")
+            vals, oks = ivf_list_topk_l2(query, probe_vectors, ids_arr, k)
+            distances.append(vals.tolist())
+            labels.append(oks.tolist())
             
         return SearchResult(distances=distances, labels=labels)
         
