@@ -12,19 +12,19 @@ MetalFAISS delivers **competitive performance on consumer Apple Silicon** while 
 
 | Library | Platform | Latency | Hardware Cost | Deployment |
 |---------|----------|---------|---------------|------------|
-| **FAISS cuVS** | H100 GPU | **0.39ms** | $30,000+ | Complex |
-| **FAISS Classic** | H100 GPU | 0.75ms | $30,000+ | Complex |
-| **MetalFAISS Batched** | Apple Silicon | **1.52ms** | $2,000-4,000 | Simple |
-| **MetalFAISS Standard** | Apple Silicon | 29.86ms | $2,000-4,000 | Simple |
+| **Faiss cuVS** | H100 GPU | **0.39ms** | $30,000+ | Complex |
+| **Faiss Classic** | H100 GPU | 0.75ms | $30,000+ | Complex |
+| **MetalFaiss Batched** | Apple Silicon | **1.52ms** | $2,000-4,000 | Simple |
+| **MetalFaiss Standard** | Apple Silicon | 29.86ms | $2,000-4,000 | Simple |
 
 ### Performance Per Dollar
 
 ```
 Cost-Performance Analysis (Higher is Better)
 ┌─────────────────────────────────────┐
-│ MetalFAISS Batched: ████████████ 12│
-│ FAISS cuVS (H100):  ██           2 │
-│ FAISS Classic:      ██           2 │
+│ MetalFaiss Batched: ████████████ 12│
+│ Faiss cuVS (H100):  ██           2 │
+│ Faiss Classic:      ██           2 │
 └─────────────────────────────────────┘
 Performance/Cost ratio (arbitrary units)
 ```
@@ -52,7 +52,7 @@ Performance/Cost ratio (arbitrary units)
 - **Custom Algorithms**: Need to modify search algorithms
 - **Small-Medium Scale**: <1M vector databases
 
-### When to Choose Traditional FAISS
+### When to Choose Traditional Faiss
 - **Maximum Performance**: Sub-millisecond latency requirements
 - **Large Scale**: >10M vector databases
 - **Data Center Deployment**: H100/A100 GPU clusters available
@@ -63,7 +63,7 @@ Performance/Cost ratio (arbitrary units)
 ### Architecture Comparison
 
 ```
-FAISS Ecosystem                 MetalFAISS
+Faiss Ecosystem                 MetalFaiss
 ┌──────────────────┐           ┌──────────────────┐
 │   C++ Core       │           │   Python Core    │
 │   ├─ SIMD        │           │   ├─ MLX Arrays  │
@@ -91,7 +91,7 @@ FAISS Ecosystem                 MetalFAISS
 
 ## References
 
-1. [Meta Engineering: FAISS cuVS Performance](https://engineering.fb.com/2025/05/08/data-infrastructure/accelerating-gpu-indexes-in-faiss-with-nvidia-cuvs/)
+1. [Meta Engineering: Faiss cuVS Performance](https://engineering.fb.com/2025/05/08/data-infrastructure/accelerating-gpu-indexes-in-faiss-with-nvidia-cuvs/) (May 8, 2025)
 2. [ANN-Benchmarks Results](https://ann-benchmarks.com/)
 3. [MetalFAISS Detailed Benchmarks](./Results.md)
 

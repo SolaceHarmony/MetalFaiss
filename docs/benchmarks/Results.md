@@ -49,9 +49,9 @@ MetalFAISS delivers **competitive performance** against industry-standard FAISS 
 | MetalFAISS Baseline MLX | 30.25 | 1.0x | Reference |
 
 **Industry Comparison:**
-- **FAISS Classic GPU** (H100): 0.75ms (100M vectors) [[1]](#references)
-- **FAISS cuVS** (H100): 0.39ms (2.7x speedup) [[1]](#references)
-- **MetalFAISS Batched**: 1.52ms (specialized case, Apple Silicon)
+- **Faiss Classic GPU** (H100): 0.75ms (100M vectors) [[1]](#references)
+- **Faiss cuVS** (H100): 0.39ms (2.7x speedup) [[1]](#references)
+- **MetalFaiss Batched**: 1.52ms (specialized case, Apple Silicon)
 
 ### MetalFAISS Orthogonality Operations (m=1024, n=256)
 
@@ -67,17 +67,17 @@ MetalFAISS delivers **competitive performance** against industry-standard FAISS 
 
 ## Competitive Analysis
 
-### MetalFAISS vs. Industry Standards
+### MetalFaiss vs. Industry Standards
 
 | Library | Hardware | IVF Search (ms) | Notes |
 |---------|----------|----------------|-------|
-| **FAISS Classic** | H100 GPU | 0.75 | 100M vectors, production |
-| **FAISS cuVS** | H100 GPU | **0.39** | Latest NVIDIA optimization |
-| **MetalFAISS** | Apple Silicon | 1.52* | *Specialized batched case |
-| **MetalFAISS** | Apple Silicon | 29.86 | Standard case |
+| **Faiss Classic** | H100 GPU | 0.75 | 100M vectors, production |
+| **Faiss cuVS** | H100 GPU | **0.39** | Latest NVIDIA optimization |
+| **MetalFaiss** | Apple Silicon | 1.52* | *Specialized batched case |
+| **MetalFaiss** | Apple Silicon | 29.86 | Standard case |
 
 **Key Takeaways:**
-- MetalFAISS achieves **competitive performance** on consumer Apple hardware
+- MetalFaiss achieves **competitive performance** on consumer Apple hardware
 - Specialized kernels can deliver **exceptional speedups** for specific workloads  
 - Pure Python implementation trades some raw speed for **developer productivity**
 - **No C++ dependencies** = easier deployment and customization
@@ -86,7 +86,7 @@ MetalFAISS delivers **competitive performance** against industry-standard FAISS 
 
 ```
 Apple Silicon (M-series)        Data Center (H100)
-├── MetalFAISS: 1.5-30ms       ├── FAISS Classic: 0.75ms  
+├── MetalFaiss: 1.5-30ms       ├── Faiss Classic: 0.75ms  
 ├── Pure Python simplicity     ├── C++ complexity
 ├── No compilation required     ├── Platform-specific builds
 └── Easy customization         └── Maximum raw performance
@@ -115,7 +115,7 @@ PYTHONPATH=python python python/metalfaiss/benchmarks/run_benchmarks.py
 
 ## References
 
-[1] [Meta Engineering: Accelerating GPU indexes in Faiss with NVIDIA cuVS](https://engineering.fb.com/2025/05/08/data-infrastructure/accelerating-gpu-indexes-in-faiss-with-nvidia-cuvs/) (2025)
+[1] [Meta Engineering: Accelerating GPU indexes in Faiss with NVIDIA cuVS](https://engineering.fb.com/2025/05/08/data-infrastructure/accelerating-gpu-indexes-in-faiss-with-nvidia-cuvs/) (May 8, 2025)
 
 ---
 

@@ -1,6 +1,6 @@
-# MetalFAISS Benchmarks
+# MetalFaiss Benchmarks
 
-This directory contains comprehensive benchmark results and competitive analysis for MetalFAISS performance.
+This directory contains comprehensive benchmark results and competitive analysis for MetalFaiss performance.
 
 ## Directory Contents
 
@@ -59,7 +59,7 @@ PYTHONPATH=python python python/metalfaiss/benchmarks/run_benchmarks.py
 
 ### Competitive Position
 - **Apple Silicon Optimized**: Best-in-class performance for Metal acceleration
-- **Pure Python**: Zero compilation complexity vs traditional FAISS
+- **Pure Python**: Zero compilation complexity vs traditional Faiss
 - **Developer Friendly**: Rapid iteration and customization capabilities
 
 ## Benchmark Methodology
@@ -71,9 +71,9 @@ PYTHONPATH=python python python/metalfaiss/benchmarks/run_benchmarks.py
 - **Precision**: float32 throughout
 
 ### Competitive Data Sources
-- [Meta Engineering: FAISS cuVS Performance](https://engineering.fb.com/2025/05/08/data-infrastructure/accelerating-gpu-indexes-in-faiss-with-nvidia-cuvs/)
+- [Meta Engineering: Faiss cuVS Performance](https://engineering.fb.com/2025/05/08/data-infrastructure/accelerating-gpu-indexes-in-faiss-with-nvidia-cuvs/) (May 8, 2025)
 - [ANN-Benchmarks](https://ann-benchmarks.com/)
-- Internal MetalFAISS benchmarks
+- Internal MetalFaiss benchmarks
 
 ## Interpretation Guide
 
@@ -83,7 +83,7 @@ PYTHONPATH=python python python/metalfaiss/benchmarks/run_benchmarks.py
 - **Comparison Charts**: Absolute vs relative performance views
 
 ### Performance Context
-- **Specialized Workloads**: MetalFAISS excels in batched scenarios
+- **Specialized Workloads**: MetalFaiss excels in batched scenarios
 - **General Workloads**: Competitive with consumer hardware advantages
 - **Development**: Pure Python enables rapid experimentation
 
