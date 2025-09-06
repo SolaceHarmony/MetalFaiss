@@ -223,22 +223,28 @@ def _format_at_b_source(TN: int, TI: int, TK: int) -> str:
 
     int itiles = (m + int(TI) - 1) / int(TI); // walk shared dimension m
     for (int t = 0; t < itiles; ++t) {
-        int i = t * int(TI) + int(local_y); // row in m for loads
+        int i0 = t * int(TI);
 
-        // Load tiles
-        float a_val = 0.0f;
-        if (i < m && rowN < n) {
-            // A^T[rowN, i] = A[i, rowN]
-            a_val = A[i * n + rowN];
+        // Load Atile rows r assigned to threads striding by TN on local_y
+        for (uint r = local_y; r < TI; r += TN) {
+            int i = i0 + int(r);
+            float a_val = 0.0f;
+            if (i < m && rowN < n) {
+                // A^T[rowN, i] = A[i, rowN]
+                a_val = A[i * n + rowN];
+            }
+            Atile[r][local_y] = a_val; // Atile[TI][TN]
         }
-        Atile[local_y][local_x] = a_val; // reuse local_x as n-index within tile
 
-        float b_val = 0.0f;
-        int i2 = t * int(TI) + int(local_y); // same i for B load
-        if (i2 < m && colK < k) {
-            b_val = B[i2 * k + colK];
+        // Load Btile rows r assigned to threads striding by TK on local_x
+        for (uint r = local_x; r < TI; r += TK) {
+            int i = i0 + int(r);
+            float b_val = 0.0f;
+            if (i < m && colK < k) {
+                b_val = B[i * k + colK];
+            }
+            Btile[r][local_x] = b_val; // Btile[TI][TK]
         }
-        Btile[local_y][local_x] = b_val;
 
         // Barrier required: tiles are consumed by multiple SIMD groups
         threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -377,9 +383,10 @@ def gemm_av(A: mx.array, V: mx.array) -> mx.array:
 
     # Tile sizes (TM,T) -> threadgroup (T, TM, 1)
     TM, T = _TILES_AV or _select_tile_av()
-    grid_x = (k + T - 1) // T
-    grid_y = (m + TM - 1) // TM
-    grid = (grid_x, grid_y, 1)
+    tiles_x = (k + T - 1) // T
+    tiles_y = (m + TM - 1) // TM
+    # MLX grid is threads, not groups
+    grid = (tiles_x * T, tiles_y * TM, 1)
     threadgroup = (T, TM, 1)
 
     (B,) = _KERNEL_AV(
@@ -423,9 +430,10 @@ def gemm_at_b(A: mx.array, B: mx.array) -> mx.array:
 
     # Tile sizes (TN,TI,TK) -> threadgroup (TK, TN, 1)
     TN, TI, TK = _TILES_ATB or _select_tile_atb()
-    grid_x = (k + TK - 1) // TK
-    grid_y = (n + TN - 1) // TN
-    grid = (grid_x, grid_y, 1)
+    tiles_x = (k + TK - 1) // TK
+    tiles_y = (n + TN - 1) // TN
+    # MLX grid is threads, not groups
+    grid = (tiles_x * TK, tiles_y * TN, 1)
     threadgroup = (TK, TN, 1)
 
     (Z,) = _KERNEL_AT_B(
