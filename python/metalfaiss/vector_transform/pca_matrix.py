@@ -1,10 +1,9 @@
 """
-pca_matrix.py - PCA matrix transform for MetalFaiss
+pca_matrix.py - PCA matrix transform for MetalFaiss (MLX-only)
 """
 
-import numpy as np
 import mlx.core as mx
-from typing import Optional, Tuple
+from typing import Optional
 from .base_vector_transform import BaseVectorTransform
 from .random_rotation import RandomRotationTransform
 
@@ -21,7 +20,8 @@ class PCAMatrixTransform(BaseVectorTransform):
         d_out: Optional[int] = None,
         eigen_power: float = 0.0,
         random_rotation: bool = True,
-        epsilon: float = 1e-5
+        epsilon: float = 1e-5,
+        key: Optional[object] = None
     ):
         """Initialize PCA matrix transform.
         
@@ -38,6 +38,7 @@ class PCAMatrixTransform(BaseVectorTransform):
         self.eigen_power = eigen_power
         self.random_rotation = random_rotation
         self.epsilon = epsilon
+        self._key = key
         
         self.mean = None
         self.pca_matrix = None
@@ -57,32 +58,26 @@ class PCAMatrixTransform(BaseVectorTransform):
         self.mean = mx.mean(x, axis=0)
         x_centered = x - self.mean
         
-        # Optional random rotation
+        # Optional random rotation (keyed RNG if provided)
         if self.random_rotation:
-            rotator = RandomRotationTransform(self.d_in)
+            rotator = RandomRotationTransform(self.d_in, key=self._key)
             rotator.train(x_centered)
             x_centered = rotator.apply(x_centered)
             self.random_rotation_matrix = rotator.rotation_matrix
+            try:
+                self._key = rotator._key
+            except AttributeError:
+                pass
             
-        # Compute covariance matrix
-        cov = mx.matmul(x_centered.T, x_centered) / (len(x) - 1)
-        
-        # Eigendecomposition
-        eigenvalues, eigenvectors = np.linalg.eigh(cov.numpy())
-        
-        # Sort by eigenvalues in descending order
-        idx = np.argsort(eigenvalues)[::-1]
-        eigenvalues = eigenvalues[idx]
-        eigenvectors = eigenvectors[:, idx]
-        
-        # Apply eigenvalue scaling
+        # Use SVD for principal components: X = U S V^T; components are columns of V
+        U, S, Vt = mx.linalg.svd(x_centered, stream=mx.cpu)
+        V = Vt.T
         if self.eigen_power != 0:
-            scale = np.power(eigenvalues[:self.d_out] + self.epsilon, 
-                           self.eigen_power / 2)
-            eigenvectors[:, :self.d_out] *= scale
-            
-        # Take needed components
-        self.pca_matrix = mx.array(eigenvectors[:, :self.d_out])
+            eigvals = (S * S) / (x_centered.shape[0] - 1)
+            scale = (eigvals[: self.d_out] + self.epsilon) ** (self.eigen_power / 2.0)
+            self.pca_matrix = V[:, : self.d_out] * scale
+        else:
+            self.pca_matrix = V[:, : self.d_out]
         self._is_trained = True
         
     def apply(self, x: mx.array) -> mx.array:

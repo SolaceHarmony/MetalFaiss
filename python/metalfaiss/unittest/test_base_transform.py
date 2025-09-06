@@ -17,8 +17,8 @@ class MockVectorTransform(BaseVectorTransform):
     """Mock transform for testing base class."""
     
     def apply_noalloc(self, x: mx.array, xt: mx.array) -> None:
-        """Mock implementation that copies input to output."""
-        xt[:] = x
+        """Mock implementation that copies/truncates input to output width."""
+        xt[:] = x[:, : xt.shape[1]]
         
     def check_identical(self, other: 'BaseVectorTransform') -> None:
         """Mock implementation that checks dimensions."""
