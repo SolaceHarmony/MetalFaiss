@@ -1,60 +1,126 @@
 Fastest Implementation Patterns (Practical, Portable Playbook)
 
-This is a plain‑speech checklist of what consistently measures fastest for GPU‑heavy MLX + Metal (and CUDA) projects. The ideas are broadly useful beyond this repo.
+This is a code‑first guide to the patterns that measured fastest for GPU‑heavy MLX projects (Metal and CUDA). Copy the snippets, tweak the knobs, and profile on your device.
 
 Principles
-- Move less, fuse more: read once, compute more, write once. Fusing distance + selection or tile load + FMA beats multiple passes through memory.
-- Batch to amortize: launch overhead matters. Batch queries or tiles where results are independent.
-- Choose the smallest correct scope: use threadgroup scope for data that crosses warps; use warp‑local ops when sharing stays within the warp.
-- Static tuning over autotune: select per‑device parameters offline; ship a static config (env overrides for experts).
-- Overlap with streams: run independent work on explicit streams; synchronize only at natural boundaries.
-- Profile, then lock: measure on target devices, pick winners, and persist in config.
+- Move less, fuse more.
+- Batch to amortize.
+- Smallest sync scope.
+- Static tuning, not autotune.
+- Overlap with streams.
 
-Kernel‑Level Patterns
-- Fused scan + top‑k: when searching lists (e.g., IVF), compute distances and maintain a local top‑k inside the kernel. Avoid materializing full distance arrays.
-  - Maintain a small per‑thread local heap (k ≤ 32), then reduce across the threadgroup to emit the final top‑k.
-  - For very long lists, do a two‑pass device merge: multiple threadgroups produce partial (k) lists, then a device merge kernel selects the final (k).
-- Warp‑level reductions: when doing dot products or per‑column accumulations, assign one warp per result and stride lanes across the reduction dimension. Reduce within the warp (simdgroup) or via threadgroup scratch.
-  - Heuristic: switch to the warp‑reduction kernel when the reduction dimension is large (e.g., m ≥ 512 for QR projection c = Qᵀv).
-- Batched queries: if many queries use the same candidate set (e.g., same probed lists), launch one threadgroup per query with a shared X; this can be an order of magnitude faster than sequential single‑query launches.
-- Tiling + fma: for matrix‑like ops, use 2D tiling, stage tiles in threadgroup memory, and accumulate with fma. Keep tile sizes device‑aware and multiples of the execution width.
-- Avoid slow ops in hot loops: no integer division/modulus by runtime values; remove dynamic stack arrays; use half I/O + float accumulation if error tolerance allows.
-- Barrier discipline: barrier only when data crosses warps and only with the required memory scope. Don’t over‑synchronize.
+Recipe 1 — IVF fused scan + select (single query)
+Compute distances and top‑k inside a single kernel across concatenated probed lists.
 
-System‑Level Patterns
-- Static params, no autotune: pick tile sizes, QR dot mode, band sizes, and stream counts per device and store in a config file.
-  - This repo: `faissmlx/config/hardware_params.json` loaded by `faissmlx/tuning.py`.
-  - Precedence: env override → static config → heuristic default.
-- Streams and callbacks: place independent work on explicit streams; rely on MLX’s cross‑stream dependencies instead of global fences. Use a background waiter to run host callbacks when a stream or arrays complete.
-  - Helpers: `python/metalfaiss/utils/streams.py`.
-- Chunk if you must, merge on device: where problems exceed useful single‑kernel sizes, chunk the input and do a device‑side merge rather than host‑side.
+```python
+import mlx.core as mx
+from python.metalfaiss.faissmlx.kernels.ivf_kernels import ivf_list_topk_l2
 
-Practical Defaults & Knobs
-- Tiles (GEMM): loaded from config; defaults on Apple M3: AV(32×8), AT_B(8×32); others: 16×16. Env overrides:
-  - `METALFAISS_GEMM_TILE_AV=TMxT`, `METALFAISS_GEMM_TILE_ATB=TNxTK`
-- QR projection mode: auto‑select simple vs warp‑reduction; env override:
-  - `METALFAISS_QR_DOT=simple|simd`
-- IVF fused scan + select: enable fused kernel and control threads per block:
-  - `METALFAISS_USE_IVF_TOPK=1`, `METALFAISS_IVF_TPB=<threads>` (safe max auto‑selects)
-- SVD Z‑step banding and streams: band small k and use a small number of streams:
-  - `METALFAISS_SVD_BAND=<B>`, `METALFAISS_SVD_STREAMS=<S>`
+# Inputs
+# q: (d,), X: (m,d) concatenated from probed lists, ids: (m,) global ids
+vals, idxs = ivf_list_topk_l2(q, X, ids, k=32)  # k<=32, auto tpb; override METALFAISS_IVF_TPB
+```
 
-Case Studies (Measured Here)
-- QR projection (c = Qᵀv): warp‑reduction kernel (~32‑lane) beats per‑thread loops for large m; correctness matches MLX dot.
-- IVF search:
-  - Fused concat (one kernel across probed lists) matches or slightly beats MLX arg‑sort for d=64, N≈32k, nprobe∈{1,8}.
-  - Per‑list kernels with host merge are slower (launch + merge overhead).
-  - Chunk + device merge approaches fused concat and scales to longer lists.
-  - Batched (same X) is 1–2 orders faster for Q=16 in our tests; batch when candidate sets are shared.
-- SVD Z‑step: tiled two‑pass (A@V then Aᵀ@B) beats MLX for small k at moderate sizes; banding wins for small k; streams offer modest gains when memory permits.
+Why it’s fast
+- Avoids materializing full distance arrays; selection stays in‑kernel.
+
+Recipe 2 — IVF batched (shared candidates)
+If many queries share the same X, launch one threadgroup per query.
+
+```python
+from python.metalfaiss.faissmlx.kernels.ivf_kernels import ivf_list_topk_l2_batch
+
+Q = mx.random.normal(shape=(B, d)).astype(mx.float32)
+vals, ids = ivf_list_topk_l2_batch(Q, X, ids, k=32)  # returns (B,k)
+```
+
+Why it’s fast
+- Amortizes launch overhead; measured 10–100× speedups when candidates are shared.
+
+Recipe 3 — IVF chunk + device merge (very long lists)
+Split rows, compute per‑chunk top‑k with the fused kernel, and merge on device.
+
+```python
+from python.metalfaiss.faissmlx.kernels.ivf_kernels import ivf_list_topk_l2_chunked_device_merge
+
+vals, ids = ivf_list_topk_l2_chunked_device_merge(q, X, ids, k=32, rows_per_chunk=8192)
+```
+
+When to use
+- Candidate sets exceed useful single‑kernel sizes; on‑device merge outperforms host merge.
+
+Recipe 4 — QR projection with warp‑level reduction
+Each warp computes one column of c = Qᵀv. Lanes stride rows, then reduce.
+
+```python
+import os
+from python.metalfaiss.faissmlx.kernels.qr_kernels import project_coeffs
+
+os.environ["METALFAISS_QR_DOT"] = "simd"  # force warp kernel (auto uses m>=512 heuristic)
+c = project_coeffs(Q, v)  # (k,)
+```
+
+Why it’s fast
+- Reduces per‑thread work and hides latency; correctness matches MLX dot.
+
+Recipe 5 — Tiled GEMM with static tile selection
+Use 2D tiles staged in threadgroup memory, accumulate via fma, and set tiles from config.
+
+```python
+from python.metalfaiss.faissmlx.kernels import gemm_kernels as gk
+
+print("tiles:", gk.get_gemm_tiles())      # ((TM,T),(TN,TI,TK))
+gk.set_gemm_tiles(av="32x8", atb="8x32")  # or via env METALFAISS_GEMM_TILE_*
+
+B = gk.gemm_av(A, V)   # (m,k) = (m,n)@(n,k)
+Z = gk.gemm_at_b(A, B) # (n,k) = Aᵀ @ B
+```
+
+Why it’s fast
+- Coalesced loads to threadgroup tiles + fma in the inner loop maximizes arithmetic intensity.
+
+Recipe 6 — Avoid / and % in hot loops
+Map indices without division/modulus by non‑constants. Prefer 2D grids.
+
+```cpp
+// Bad (1D mapping): slow / and % by runtime k
+uint gid = thread_position_in_grid.x; uint col = gid % k; uint row = gid / k;
+
+// Good (2D): no divide/mod
+uint2 g = thread_position_in_grid.xy; if (g.x>=k || g.y>=n) return;
+uint idx = g.y * k + g.x;
+```
+
+Recipe 7 — Streams overlap + callbacks
+Run independent work on explicit streams; fire host callbacks when a stream completes without stalling others.
+
+```python
+from python.metalfaiss.utils.streams import on_stream_complete
+s_cpu = mx.new_stream(mx.cpu); s_gpu = mx.new_stream(mx.gpu)
+with mx.stream(s_cpu): x = preprocess(batch)        # CPU stream
+with mx.stream(s_gpu): y = model_forward(x)         # GPU stream
+on_stream_complete(s_gpu, lambda: log_ready(y))     # stream‑scoped waiter
+```
+
+Knobs & Defaults
+- Tiles (GEMM): Apple M3 → AV(32×8), AT_B(8×32); others → 16×16.
+  - Env: `METALFAISS_GEMM_TILE_AV=TMxT`, `METALFAISS_GEMM_TILE_ATB=TNxTK`
+- QR mode: heuristic or `METALFAISS_QR_DOT=simple|simd`
+- IVF fused: `METALFAISS_USE_IVF_TOPK=1`, threads per block `METALFAISS_IVF_TPB`
+- SVD banding/streams: `METALFAISS_SVD_BAND`, `METALFAISS_SVD_STREAMS`
+
+Measured outcomes (this repo)
+- IVF fused concat matches/slightly beats MLX baseline at d=64, N≈32k, nprobe∈{1,8}.
+- IVF batched (shared X) is 1–2 orders faster for Q=16; use when probed lists are shared.
+- QR warp‑reduction kernel beats per‑thread loops for large m with correct results.
+- SVD Z‑step: tiled two‑pass wins for small k at moderate sizes; banding wins for small k; streams offer modest gains.
 
 Checklist
-- [ ] Data moves minimized and fused where safe
-- [ ] Warp‑level reductions for large reductions
-- [ ] Batched launches where candidates are shared
-- [ ] Tile sizes set per device from static config
-- [ ] No integer division/modulus in hot loops
-- [ ] Barrier scope minimal and correct
-- [ ] Streams explicit; only boundary‑level sync
-- [ ] Benchmarked, then persisted in config; env overrides documented
-
+- [ ] Fused kernels replace multi‑pass memory flows
+- [ ] Warp reductions for large reductions
+- [ ] Batched launches for shared candidates
+- [ ] Tiles from static config; no autotune in prod
+- [ ] No div/mod in hot loops
+- [ ] Minimal barrier scope
+- [ ] Streams explicit; boundary‑only sync
+- [ ] Results measured and persisted; env overrides documented
