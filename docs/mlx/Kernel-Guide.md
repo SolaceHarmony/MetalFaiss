@@ -120,6 +120,15 @@ S  = mx.sqrt(mx.sum(U*U, axis=0))
 U  = U / mx.where(S > 0, S, 1)[None, :]
 ```
 
+## Performance Pitfalls
+
+When writing Metal kernels, be aware of common performance pitfalls that can silently degrade performance:
+
+- **Dynamically-Indexed Stack Arrays:** Avoid arrays on the stack that are indexed by a non-compile-time-constant value. This can prevent compiler optimizations and lead to significant slowdowns.
+- **Non-Constant Integer Division:** Division or modulus operations where the denominator is not a compile-time constant are extremely slow on the GPU. Whenever possible, pre-calculate reciprocals and multiply, or use bit-shifting for powers of two.
+
+For a more comprehensive list of optimizations, see [Shader-Optimization-Tips.md](../metal/Shader-Optimization-Tips.md) and [WWDC16-Optimization-Patterns.md](./WWDC16-Optimization-Patterns.md).
+
 ## HPC16x8 (128‑bit Limb Accumulation)
 
 - When float32 accumulations drift (long dots, Gram updates), emulate extended precision via 16‑bit limbs:
@@ -137,3 +146,11 @@ U  = U / mx.where(S > 0, S, 1)[None, :]
 
 - Always benchmark MLX vs kernel for your sizes.
 - Keep one winner per path to simplify maintenance; re‑run benchmarks when shapes/devices change.
+
+## Spot Tests (Learn by Measuring)
+
+- For hands-on microbenches that illustrate key performance rules (integer division vs 2D grids, barrier scope, half I/O + float accumulate), see `docs/mlx/Spot-Tests.md`.
+
+## Streams (Overlap & Boundaries)
+
+- Place independent tasks on explicit streams (CPU/GPU) to overlap work. Keep dependent steps in the same stream; synchronize only at program boundaries. See `docs/mlx/Streams-Guide.md` for examples.

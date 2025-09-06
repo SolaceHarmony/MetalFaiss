@@ -1,9 +1,18 @@
 """
-dispatch.py - Autoswitching helpers for implementation selection
+Autoswitching helpers for MLX vs. Metal‑kernel implementations
 
-Select MLX vs. Metal-kernel implementations based on device and size.
-Follows the pattern used elsewhere: prefer MLX vectorized ops for
-small/medium problems; use kernels for larger tiles; allow env overrides.
+Purpose
+- Choose between MLX vectorized ops and custom Metal kernels based on device
+  and problem size. Prefer MLX for small/medium shapes; use kernels for larger
+  tiles. Allow env overrides for experimentation and benchmarking.
+
+Environment Overrides
+- `METALFAISS_FORCE_QR=MLX|KERNEL`
+- `METALFAISS_FORCE_SVD=MLX|KERNEL`
+
+References
+- docs/mlx/Comprehensive-MLX-Metal-Guide.md:1
+- docs/research/Journal.md:1
 """
 
 from __future__ import annotations
@@ -23,6 +32,15 @@ def _device_type() -> str:
 
 
 def choose_qr_impl(m: int, k: int) -> Literal["MLX_MGS", "KERNEL_PROJ"]:
+    """Select QR projection path.
+
+    Heuristic
+    - On GPU, choose kernel projections when `m*k` is large (long vectors and/or
+      many columns). Else, MLX ops are competitive and simpler.
+
+    Env override
+    - `METALFAISS_FORCE_QR=MLX|KERNEL` to force a choice.
+    """
     # Env overrides
     if os.environ.get("METALFAISS_FORCE_QR", "").upper() == "MLX":
         return "MLX_MGS"
@@ -38,6 +56,15 @@ def choose_qr_impl(m: int, k: int) -> Literal["MLX_MGS", "KERNEL_PROJ"]:
 
 
 def choose_svd_impl(m: int, n: int, k: int) -> Literal["MLX_MATMUL", "KERNEL_TILED"]:
+    """Select SVD Z‑step implementation.
+
+    Heuristic
+    - Prefer MLX for small/medium sizes; switch to tiled kernels for large work
+      (roughly `m*n*k >= 16M`).
+
+    Env override
+    - `METALFAISS_FORCE_SVD=MLX|KERNEL` to force a choice.
+    """
     # Env overrides
     if os.environ.get("METALFAISS_FORCE_SVD", "").upper() == "MLX":
         return "MLX_MATMUL"
