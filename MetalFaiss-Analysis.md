@@ -1,4 +1,4 @@
-# MetalFAISS Analysis: Python + MLX Port of SwiftFaiss
+# MetalFaiss Analysis: Python + MLX Port of SwiftFaiss
 
 ## Implementation Structure
 
@@ -16,7 +16,7 @@
    - Protocol-based design
    - Memory management through Swift/C++ bridge
 
-3. **MetalFAISS (Python + MLX)**
+3. **MetalFaiss (Python + MLX)**
    - Two parallel implementations:
      * faissmlx/ - Direct C++ port
      * metalfaiss/ - Swift-inspired structure
@@ -50,7 +50,7 @@
    
    Implementation Comparison:
    ```
-   C++ FAISS         SwiftFaiss           MetalFAISS
+   C++ Faiss         SwiftFaiss           MetalFaiss
    METRIC_L2         .l2                  MetricType.L2
    METRIC_IP         .innerProduct        MetricType.INNER_PRODUCT
    METRIC_L1         .l1                  MetricType.L1
@@ -170,16 +170,16 @@
 
 MetalFaiss performance relative to established vector search libraries:
 
-#### MetalFAISS Performance (k=10 nearest neighbors)
+#### MetalFaiss Performance (k=10 nearest neighbors)
 
 | Library | Hardware | Configuration | Latency | Throughput |
 |---------|----------|---------------|---------|------------|
-| **FAISS Classic** | NVIDIA H100 | 100M vectors, d=96 | 0.75ms | 1,333 QPS |
-| **FAISS cuVS** | NVIDIA H100 | 100M vectors, d=96 | 0.39ms | 2,564 QPS |
-| **MetalFAISS Standard** | Apple Silicon | 32k vectors, d=64 | 29.86ms | 33 QPS |
-| **MetalFAISS Batched** | Apple Silicon | 32k vectors, d=64 | 1.52ms | 658 QPS |
+| **Faiss Classic** | NVIDIA H100 | 100M vectors, d=96 | 0.75ms | 1,333 QPS |
+| **Faiss cuVS** | NVIDIA H100 | 100M vectors, d=96 | 0.39ms | 2,564 QPS |
+| **MetalFaiss Standard** | Apple Silicon | 32k vectors, d=64 | 29.86ms | 33 QPS |
+| **MetalFaiss Batched** | Apple Silicon | 32k vectors, d=64 | 1.52ms | 658 QPS |
 
-*Sources: Meta Engineering Blog (2025), Internal Benchmarks*
+*Sources: Meta Engineering Blog (May 8, 2025), Internal Benchmarks*
 
 #### Key Performance Insights
 
@@ -199,13 +199,13 @@ MetalFaiss performance relative to established vector search libraries:
 
 3. **Deployment Complexity Comparison**
    
-   **FAISS Classic:**
+   **Faiss Classic:**
    - C++ compilation required
    - CUDA dependencies
    - Platform-specific builds
    - Complex installation
 
-   **MetalFAISS:**
+   **MetalFaiss:**
    - Pure Python installation: `pip install -e .`
    - Single dependency: MLX
    - Platform-agnostic (Apple Silicon)
@@ -213,7 +213,7 @@ MetalFaiss performance relative to established vector search libraries:
 
 #### Performance Context
 
-- **Consumer Hardware Competitive**: MetalFAISS delivers respectable performance on consumer-grade Apple Silicon
+- **Consumer Hardware Competitive**: MetalFaiss delivers respectable performance on consumer-grade Apple Silicon
 - **Development Velocity**: Python implementation enables rapid prototyping and customization
 - **Total Cost of Ownership**: Lower hardware costs + simpler deployment = attractive ROI
 - **Specialized Use Cases**: Batched workloads show exceptional performance gains

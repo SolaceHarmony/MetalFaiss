@@ -1,7 +1,15 @@
 #!/usr/bin/env python3
 """
 Performance Dashboard Generator for MetalFaiss
-Creates a summary dashboard comparing MetalFaiss with industry standards
+Creates a summ    table_data = [
+        ['Metric', 'Faiss cuVS', 'Faiss Classic', 'MetalFaiss Batched', 'MetalFaiss Standard'],
+        ['Latency (ms)', '0.39', '0.75', '1.52', '29.86'],
+        ['Hardware Cost', '$30,000+', '$30,000+', '$2,000-4,000', '$2,000-4,000'],
+        ['Installation', 'Complex', 'Complex', 'pip install', 'pip install'],
+        ['Platform', 'CUDA/Linux', 'CUDA/Linux', 'Apple Silicon', 'Apple Silicon'],
+        ['Language', 'C++/Python', 'C++/Python', 'Pure Python', 'Pure Python'],
+        ['Best For', 'Max Performance', 'Data Centers', 'Development', 'Prototyping']
+    ]oard comparing MetalFaiss with industry standards
 """
 
 import matplotlib.pyplot as plt
@@ -23,7 +31,8 @@ def create_performance_dashboard():
     
     # 1. Absolute Performance Comparison
     ax1 = fig.add_subplot(gs[0, 0])
-    libraries = ['FAISS cuVS\n(H100)', 'FAISS Classic\n(H100)', 'MetalFAISS\nBatched', 'MetalFAISS\nStandard']
+    libraries = ['Faiss cuVS\n(H100)', 'Faiss Classic\n(H100)', 'MetalFaiss\nBatched', 'MetalFaiss\nStandard']
+    latencies = [0.39, 0.75, 1.52, 29.86]
     latencies = [0.39, 0.75, 1.52, 29.86]
     colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
     
@@ -68,9 +77,9 @@ def create_performance_dashboard():
     faiss_scores += faiss_scores[:1]
     metalfaiss_scores += metalfaiss_scores[:1]
     
-    ax3.plot(angles, faiss_scores, 'o-', linewidth=2, label='FAISS Classic', color='#ff7f0e')
+    ax3.plot(angles, faiss_scores, 'o-', linewidth=2, label='Faiss Classic', color='#ff7f0e')
     ax3.fill(angles, faiss_scores, alpha=0.25, color='#ff7f0e')
-    ax3.plot(angles, metalfaiss_scores, 'o-', linewidth=2, label='MetalFAISS', color='#2ca02c')
+    ax3.plot(angles, metalfaiss_scores, 'o-', linewidth=2, label='MetalFaiss', color='#2ca02c')
     ax3.fill(angles, metalfaiss_scores, alpha=0.25, color='#2ca02c')
     
     ax3.set_xticks(angles[:-1])
@@ -115,7 +124,7 @@ def create_performance_dashboard():
             else:
                 cell.set_facecolor('#F9F9F9')
     
-    plt.suptitle('MetalFAISS Performance Dashboard', fontsize=20, fontweight='bold', y=0.95)
+    plt.suptitle('MetalFaiss Performance Dashboard', fontsize=20, fontweight='bold', y=0.95)
     
     # Add footer
     fig.text(0.5, 0.02, 'Sources: Meta Engineering Blog (2025), Internal Benchmarks | Apple Silicon vs NVIDIA H100', 

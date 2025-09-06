@@ -11,7 +11,7 @@ A pure Python implementation of FAISS (Facebook AI Similarity Search) optimized 
 - **Pure Python Implementation**: No C++ dependencies, easy to install and modify
 - **Metal Acceleration**: Optimized for Apple Silicon using MLX framework
 - **Competitive Performance**: 20x speedup in specialized cases, sub-millisecond operations
-- **FAISS Compatible**: Similar API to original FAISS library
+- **Faiss Compatible**: Similar API to original Faiss library
 - **Lazy Evaluation**: Efficient computation graphs with MLX
 - MLX-only: Requires MLX on Apple Silicon (Metal). No fallbacks.
 
@@ -117,9 +117,9 @@ MetalFAISS provides excellent performance characteristics on Apple Silicon:
 
 | Metric | MetalFAISS | Industry Standard | Notes |
 |--------|------------|------------------|-------|
-| **IVF Search** | 1.5ms | FAISS cuVS: 0.39ms (H100) | Specialized batched case |
-| **QR Projection** | 0.38ms | FAISS SIMD: ~0.1-0.3ms | Competitive on consumer HW |
-| **Pure Python** | Yes | FAISS: C++ required | Zero compilation needed |
+| **IVF Search** | 1.5ms | Faiss cuVS: 0.39ms (H100) | Specialized batched case |
+| **QR Projection** | 0.38ms | Faiss SIMD: ~0.1-0.3ms | Competitive on consumer HW |
+| **Pure Python** | Yes | Faiss: C++ required | Zero compilation needed |
 
 > **[View Detailed Benchmarks](docs/benchmarks/Results.md)** - Complete performance analysis with competitive comparisons  
 > **[Competitive Analysis](docs/benchmarks/Competitive-Analysis.md)** - Industry positioning and trade-off analysis

@@ -150,7 +150,7 @@ def main():
     
     create_enhanced_bar_chart(
         base_dir / 'qr.csv',
-        'MetalFAISS QR Projection Performance (c = Qᵀv)\nMLX + Metal Optimization',
+        'MetalFaiss QR Projection Performance (c = Qᵀv)\nMLX + Metal Optimization',
         'Execution Time (milliseconds)',
         base_dir / 'qr_enhanced.png',
         qr_competitive
@@ -158,14 +158,14 @@ def main():
     
     # IVF Search chart with competitive data
     ivf_competitive = [
-        ('FAISS Classic (H100)', '0.75', '(100M vectors)'),
-        ('FAISS cuVS (H100)', '0.39', '(2.7x speedup)'),
-        ('FAISS CPU', '~5-50', '(typical range)'),
+        ('Faiss Classic (H100)', '0.75', '(100M vectors)'),
+        ('Faiss cuVS (H100)', '0.39', '(2.7x speedup)'),
+        ('Faiss CPU', '~5-50', '(typical range)'),
     ]
     
     create_enhanced_bar_chart(
         base_dir / 'ivf.csv',
-        'MetalFAISS IVF Search Performance (d=64, N=32k, nprobe=8)\nApple Silicon vs Industry Leaders',
+        'MetalFaiss IVF Search Performance (d=64, N=32k, nprobe=8)\nApple Silicon vs Industry Leaders',
         'Query Time (milliseconds)',
         base_dir / 'ivf_enhanced.png',
         ivf_competitive
@@ -174,7 +174,7 @@ def main():
     # Orthogonality chart
     create_enhanced_bar_chart(
         base_dir / 'orthogonality.csv',
-        'MetalFAISS Orthogonality Operations (m=1024, n=256)\nModified Gram-Schmidt Performance',
+        'MetalFaiss Orthogonality Operations (m=1024, n=256)\nModified Gram-Schmidt Performance',
         'Computation Time (milliseconds)',
         base_dir / 'orthogonality_enhanced.png'
     )
@@ -182,7 +182,7 @@ def main():
     # Create comparison charts
     create_comparison_chart(
         base_dir / 'ivf.csv',
-        'MetalFAISS IVF Search: Absolute vs Relative Performance',
+        'MetalFaiss IVF Search: Absolute vs Relative Performance',
         base_dir / 'ivf_comparison.png'
     )
     
