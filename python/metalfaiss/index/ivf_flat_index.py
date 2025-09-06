@@ -10,6 +10,7 @@ from ..types.metric_type import MetricType
 from ..utils.search_result import SearchResult
 from ..index.index_error import IndexError
 import os
+from ..faissmlx.flags import ivf_fused_enabled
 try:
     from ..faissmlx.kernels.ivf_kernels import ivf_list_topk_l2
 except Exception:
@@ -133,7 +134,7 @@ class IVFFlatIndex(BaseIndex):
             use_kernel = (
                 self.metric_type == MetricType.L2 and
                 ivf_list_topk_l2 is not None and
-                os.environ.get("METALFAISS_USE_IVF_TOPK", "1") == "1"
+                ivf_fused_enabled(False)
             )
             if use_kernel:
                 vals, oks = ivf_list_topk_l2(query, probe_vectors, ids_arr, k)

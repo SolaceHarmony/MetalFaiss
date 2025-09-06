@@ -19,6 +19,7 @@ from __future__ import annotations
 from typing import Literal, Dict
 import os
 import mlx.core as mx
+from .flags import qr_kernels_enabled, svd_kernels_enabled
 
 
 def _device_type() -> str:
@@ -47,6 +48,9 @@ def choose_qr_impl(m: int, k: int) -> Literal["MLX_MGS", "KERNEL_PROJ"]:
     if os.environ.get("METALFAISS_FORCE_QR", "").upper() == "KERNEL":
         return "KERNEL_PROJ"
 
+    # Global gating: keep research kernels off unless explicitly enabled
+    if not qr_kernels_enabled():
+        return "MLX_MGS"
     dev = _device_type()
     # Threshold heuristic: when there are many columns or long vectors,
     # using a kernel for c = Q^T v becomes beneficial.
@@ -71,6 +75,9 @@ def choose_svd_impl(m: int, n: int, k: int) -> Literal["MLX_MATMUL", "KERNEL_TIL
     if os.environ.get("METALFAISS_FORCE_SVD", "").upper() == "KERNEL":
         return "KERNEL_TILED"
 
+    # Global gating: keep research kernels off unless explicitly enabled
+    if not svd_kernels_enabled():
+        return "MLX_MATMUL"
     dev = _device_type()
     # Use tiled kernels for larger problems; MLX matmul is very strong for small sizes.
     work = m * n * k
