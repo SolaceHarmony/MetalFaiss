@@ -23,7 +23,7 @@ import mlx.core as mx
 # Basic Distance Functions
 ###############################################################################
 
-def fvec_L2sqr(x: mx.array, y: mx.array) -> float:
+def fvec_L2sqr(x: mx.array, y: mx.array) -> mx.array:
     """
     Compute the squared L2 distance between two vectors.
     
@@ -32,14 +32,14 @@ def fvec_L2sqr(x: mx.array, y: mx.array) -> float:
         y: MLX array of shape (d,).
         
     Returns:
-        The squared L2 distance as a Python float.
+        MLX scalar (0-d array) with the squared L2 distance.
     """
     diff = x - y
-    # mx.dot returns an MLX scalar; convert to float.
-    return float(mx.dot(diff, diff))
+    # mx.dot returns an MLX scalar (0-d array); keep it on device.
+    return mx.dot(diff, diff)
 
 
-def fvec_inner_product(x: mx.array, y: mx.array) -> float:
+def fvec_inner_product(x: mx.array, y: mx.array) -> mx.array:
     """
     Compute the inner product between two vectors.
     
@@ -48,12 +48,12 @@ def fvec_inner_product(x: mx.array, y: mx.array) -> float:
         y: MLX array of shape (d,).
         
     Returns:
-        The inner product as a Python float.
+        MLX scalar (0-d array) with the inner product.
     """
-    return float(mx.dot(x, y))
+    return mx.dot(x, y)
 
 
-def fvec_L1(x: mx.array, y: mx.array) -> float:
+def fvec_L1(x: mx.array, y: mx.array) -> mx.array:
     """
     Compute the L1 (Manhattan) distance between two vectors.
     
@@ -62,12 +62,12 @@ def fvec_L1(x: mx.array, y: mx.array) -> float:
         y: MLX array of shape (d,).
         
     Returns:
-        The L1 distance as a Python float.
+        MLX scalar (0-d array) with the L1 distance.
     """
-    return float(mx.sum(mx.abs(x - y)))
+    return mx.sum(mx.abs(x - y))
 
 
-def fvec_Linf(x: mx.array, y: mx.array) -> float:
+def fvec_Linf(x: mx.array, y: mx.array) -> mx.array:
     """
     Compute the Chebyshev (L∞) distance between two vectors.
     
@@ -76,9 +76,9 @@ def fvec_Linf(x: mx.array, y: mx.array) -> float:
         y: MLX array of shape (d,).
         
     Returns:
-        The L∞ distance as a Python float.
+        MLX scalar (0-d array) with the L∞ distance.
     """
-    return float(mx.max(mx.abs(x - y)))
+    return mx.max(mx.abs(x - y))
 
 
 ###############################################################################

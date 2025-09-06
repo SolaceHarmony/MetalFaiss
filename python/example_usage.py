@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 """
 Example usage of MetalFaiss - Basic vector search demo
 

@@ -183,3 +183,12 @@
    - Performance guidelines
    - Migration guides
    - Optimization tips
+
+## Further Reading
+
+This analysis provides a high-level overview. For detailed implementation patterns and optimization strategies, refer to the following project documents:
+
+*   **MLX + Metal Kernels:** For a deep dive into writing, launching, and optimizing custom Metal kernels with MLX, see the [Comprehensive MLX Metal Guide](./docs/mlx/Comprehensive-MLX-Metal-Guide.md).
+*   **WWDC Optimization Patterns:** To see how classic Metal optimization advice applies to MLX kernels, read [WWDC16-Inspired Optimization Patterns](./docs/mlx/WWDC16-Optimization-Patterns.md).
+*   **Kernel Development Journal:** For a log of experiments, benchmarks, and the rationale behind specific kernel designs (like the SVD Z-step), consult the [Research Journal](./docs/research/Journal.md).
+*   **QR and SVD Implementation:** For practical examples of how algorithms like QR and SVD are implemented and optimized, see the [Practical Kernel Guide](./docs/mlx/Kernel-Guide.md).

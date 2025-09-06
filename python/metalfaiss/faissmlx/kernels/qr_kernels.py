@@ -1,13 +1,16 @@
 """
 qr_kernels.py - Metal kernels (MLX JIT) for QR helpers
 
-Provides a kernel to compute projection coefficients c = Q^T v
-for Modified Gram–Schmidt, offloading dot-products to GPU threads.
+Kernels:
+- qr_col_dot: c = Q^T v
+- qr_update_vec: v_out = v_in - Q c
 """
 
 from typing import Tuple
 import os
 import mlx.core as mx
+
+_HEADER = """#include <metal_stdlib>\nusing namespace metal;\n"""
 
 _COL_DOT_SRC = r"""
     uint gid = thread_position_in_grid.x;
@@ -21,20 +24,35 @@ _COL_DOT_SRC = r"""
     out[gid] = acc;
 """;
 
+_UPDATE_SRC = r"""
+    uint gid = thread_position_in_grid.x;
+    int m = int(shape[0]);
+    int k = int(shape[1]);
+    if (gid >= m) return;
+    float acc = 0.0f;
+    for (int j = 0; j < k; ++j) {
+        acc = fma(Q[gid * k + j], c[j], acc);
+    }
+    out[gid] = v[gid] - acc;
+""";
 
-def _build_kernel():
-    header = """#include <metal_stdlib>\nusing namespace metal;\n"""
-    return mx.fast.metal_kernel(
-        name="qr_col_dot",
-        input_names=["Q", "v", "shape"],
-        output_names=["out"],
-        source=_COL_DOT_SRC,
-        header=header,
-        ensure_row_contiguous=True,
-    )
+_KERNEL_COL_DOT = mx.fast.metal_kernel(
+    name="qr_col_dot",
+    input_names=["Q", "v", "shape"],
+    output_names=["out"],
+    source=_COL_DOT_SRC,
+    header=_HEADER,
+    ensure_row_contiguous=True,
+)
 
-
-_KERNEL = None
+_KERNEL_UPDATE = mx.fast.metal_kernel(
+    name="qr_update_vec",
+    input_names=["Q", "c", "v", "shape"],
+    output_names=["out"],
+    source=_UPDATE_SRC,
+    header=_HEADER,
+    ensure_row_contiguous=True,
+)
 
 
 def project_coeffs(Q: mx.array, v: mx.array) -> mx.array:
@@ -47,9 +65,6 @@ def project_coeffs(Q: mx.array, v: mx.array) -> mx.array:
     Returns:
         c: (k,)
     """
-    global _KERNEL
-    if _KERNEL is None:
-        _KERNEL = _build_kernel()
     m, k = int(Q.shape[0]), int(Q.shape[1])
     shape = mx.array([m, k], dtype=mx.uint32)
     total = k
@@ -58,9 +73,37 @@ def project_coeffs(Q: mx.array, v: mx.array) -> mx.array:
     grid = (nthreads, 1, 1)
     threadgroup = (tgroup, 1, 1)
 
-    (out,) = _KERNEL(
+    (out,) = _KERNEL_COL_DOT(
         inputs=[Q, v, shape],
         output_shapes=[(k,)],
+        output_dtypes=[Q.dtype],
+        grid=grid,
+        threadgroup=threadgroup,
+    )
+    return out
+
+
+def update_vector(Q: mx.array, c: mx.array, v: mx.array) -> mx.array:
+    """Compute v_out = v - Q c using Metal kernel.
+
+    Args:
+        Q: (m, k)
+        c: (k,)
+        v: (m,)
+    Returns:
+        v_out: (m,)
+    """
+    m, k = int(Q.shape[0]), int(Q.shape[1])
+    shape = mx.array([m, k], dtype=mx.uint32)
+    total = m
+    tgroup = 128
+    nthreads = ((total + tgroup - 1) // tgroup) * tgroup
+    grid = (nthreads, 1, 1)
+    threadgroup = (tgroup, 1, 1)
+
+    (out,) = _KERNEL_UPDATE(
+        inputs=[Q, c, v, shape],
+        output_shapes=[(m,)],
         output_dtypes=[Q.dtype],
         grid=grid,
         threadgroup=threadgroup,

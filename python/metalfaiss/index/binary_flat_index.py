@@ -2,7 +2,6 @@
 binary_flat_index.py - Binary flat index for MetalFaiss
 """
 
-import numpy as np
 import mlx.core as mx
 from typing import List, Optional, Tuple, Union
 from .binary_index import BaseBinaryIndex
@@ -35,8 +34,8 @@ class BinaryFlatIndex(BaseBinaryIndex):
             raise ValueError(f"Vector dimension {x.shape[1]} != index dimension {self.d}")
             
         # Convert to uint8
-        if x.dtype != np.uint8:
-            x = x.astype(np.uint8)
+        if x.dtype != mx.uint8:
+            x = x.astype(mx.uint8)
             
         # Initialize or append codes
         if self.codes is None:
@@ -68,16 +67,16 @@ class BinaryFlatIndex(BaseBinaryIndex):
             
         if self.ntotal == 0:
             return (
-                mx.zeros((len(x), k), dtype=np.int32),
-                mx.zeros((len(x), k), dtype=np.int32)
+                mx.zeros((len(x), k), dtype=mx.int32),
+                mx.zeros((len(x), k), dtype=mx.int32)
             )
             
         # Convert to uint8
-        if x.dtype != np.uint8:
-            x = x.astype(np.uint8)
+        if x.dtype != mx.uint8:
+            x = x.astype(mx.uint8)
             
         # Compute Hamming distances
-        distances = mx.zeros((len(x), self.ntotal), dtype=np.int32)
+        distances = mx.zeros((len(x), self.ntotal), dtype=mx.int32)
         for i in range(self.d):
             distances += mx.not_equal(
                 x[:, i:i+1],
@@ -115,11 +114,11 @@ class BinaryFlatIndex(BaseBinaryIndex):
             return SearchRangeResult([], [], mx.array([0] * (len(x) + 1)))
             
         # Convert to uint8
-        if x.dtype != np.uint8:
-            x = x.astype(np.uint8)
+        if x.dtype != mx.uint8:
+            x = x.astype(mx.uint8)
             
         # Compute Hamming distances
-        distances = mx.zeros((len(x), self.ntotal), dtype=np.int32)
+        distances = mx.zeros((len(x), self.ntotal), dtype=mx.int32)
         for i in range(self.d):
             distances += mx.not_equal(
                 x[:, i:i+1],
@@ -127,34 +126,24 @@ class BinaryFlatIndex(BaseBinaryIndex):
             )
             
         # Get matches within radius
-        matches = []
-        for i in range(len(x)):
-            mask = distances[i] <= radius
-            matches.append([
-                (int(d), int(j))
-                for d, j in zip(
-                    distances[i][mask].numpy(),
-                    mx.arange(self.ntotal)[mask].numpy()
-                )
-            ])
-            
-        # Build lims array
-        lims = [0]
-        for m in matches:
-            lims.append(lims[-1] + len(m))
-            
-        # Flatten matches
         flat_distances = []
         flat_indices = []
-        for m in matches:
-            for d, j in m:
-                flat_distances.append(mx.array([d]))
-                flat_indices.append(mx.array([j]))
-                
+        lims = [0]
+        rad = mx.array(radius, dtype=mx.int32)
+        for i in range(len(x)):
+            mask = distances[i] <= rad
+            d_arr = distances[i][mask]
+            j_arr = mx.arange(self.ntotal, dtype=mx.int32)[mask]
+            # Append as 1-element arrays without converting to Python scalars
+            for p in range(int(d_arr.shape[0])):
+                flat_distances.append(d_arr[p:p+1])
+                flat_indices.append(j_arr[p:p+1])
+            lims.append(lims[-1] + int(d_arr.shape[0]))
+
         return SearchRangeResult(
             flat_distances,
             flat_indices,
-            mx.array(lims)
+            mx.array(lims, dtype=mx.int32)
         )
         
     def reconstruct(self, idx: Union[int, mx.array]) -> mx.array:
