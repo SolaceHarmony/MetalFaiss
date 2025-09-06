@@ -16,7 +16,7 @@ from __future__ import annotations
 import os
 import time
 from dataclasses import dataclass
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict, Any
 
 import mlx.core as mx
 
@@ -196,19 +196,55 @@ def main():
     ensure_dir(out_dir)
 
     # QR
-    labels, values = bench_qr()
-    write_csv(f"{out_dir}/qr.csv", labels, values)
-    save_bar_png(f"{out_dir}/qr.png", "QR Projection (c = Q^T v)", labels, values)
+    qr_labels, qr_values = bench_qr()
+    write_csv(f"{out_dir}/qr.csv", qr_labels, qr_values)
+    save_bar_png(f"{out_dir}/qr.png", "QR Projection (c = Q^T v)", qr_labels, qr_values)
 
     # IVF
-    labels, values = bench_ivf()
-    write_csv(f"{out_dir}/ivf.csv", labels, values)
-    save_bar_png(f"{out_dir}/ivf.png", "IVF Search (d=64,N=32k,nprobe=8,Q=16,k=10)", labels, values)
+    ivf_labels, ivf_values = bench_ivf()
+    write_csv(f"{out_dir}/ivf.csv", ivf_labels, ivf_values)
+    save_bar_png(f"{out_dir}/ivf.png", "IVF Search (d=64,N=32k,nprobe=8,Q=16,k=10)", ivf_labels, ivf_values)
 
     # Orthogonality
-    labels, values = bench_orthogonality()
-    write_csv(f"{out_dir}/orthogonality.csv", labels, values)
-    save_bar_png(f"{out_dir}/orthogonality.png", "Orthogonality (m=1024,n=256)", labels, values)
+    ortho_labels, ortho_values = bench_orthogonality()
+    write_csv(f"{out_dir}/orthogonality.csv", ortho_labels, ortho_values)
+    save_bar_png(f"{out_dir}/orthogonality.png", "Orthogonality (m=1024,n=256)", ortho_labels, ortho_values)
+
+    # Emit provenance metadata
+    try:
+        import platform, json, subprocess
+        commit = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True).stdout.strip()
+    except Exception:
+        platform, commit = None, ""
+    # Try to capture MLX + Metal device details
+    mlx_version = getattr(mx, "__version__", "")
+    device_name = ""
+    try:
+        import mlx.core.metal as metal
+        info = metal.device_info()
+        device_name = str(info.get("device_name", ""))
+    except Exception:
+        pass
+    meta: Dict[str, Any] = {
+        "timestamp": __import__("datetime").datetime.now().isoformat(timespec="seconds"),
+        "git_commit": commit,
+        "python": {
+            "version": __import__("sys").version.split(" ")[0],
+            "platform": __import__("platform").platform(),
+            "machine": __import__("platform").machine(),
+        },
+        "mlx": {"version": mlx_version, "device": device_name},
+        "benches": {
+            "qr": dict(labels=qr_labels, values_seconds=qr_values, shape={"m": 4096, "k": 128}),
+            "ivf": dict(labels=ivf_labels, values_seconds=ivf_values, params={"d": 64, "N": 32768, "nlist": 128, "Q": 16, "nprobe": 8, "k": 10}),
+            "orthogonality": dict(labels=ortho_labels, values_seconds=ortho_values, shape={"m": 1024, "n": 256}),
+        },
+    }
+    try:
+        with open(f"{out_dir}/bench_meta.json", "w") as f:
+            json.dump(meta, f, indent=2)
+    except Exception:
+        pass
 
     print(f"Wrote CSV and PNGs to {out_dir}")
 
