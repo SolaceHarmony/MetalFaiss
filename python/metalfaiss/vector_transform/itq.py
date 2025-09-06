@@ -1,10 +1,9 @@
 """
-itq.py - Iterative Quantization transform for MetalFaiss
+itq.py - Iterative Quantization transform for MetalFaiss (MLX-only)
 """
 
-import numpy as np
 import mlx.core as mx
-from typing import Optional, Tuple
+from typing import Optional
 from .base_vector_transform import BaseVectorTransform
 from .pca_matrix import PCAMatrixTransform
 
@@ -22,7 +21,8 @@ class ITQTransform(BaseVectorTransform):
         d_out: Optional[int] = None,
         n_iter: int = 50,
         random_rotation: bool = True,
-        seed: Optional[int] = None
+        seed: Optional[int] = None,
+        key: Optional[object] = None
     ):
         """Initialize ITQ transform.
         
@@ -39,6 +39,7 @@ class ITQTransform(BaseVectorTransform):
         self.n_iter = n_iter
         self.random_rotation = random_rotation
         self.seed = seed
+        self._key = key if key is not None else (mx.random.key(int(seed)) if seed is not None else None)
         
         self.pca = None
         self.rotation_matrix = None
@@ -62,27 +63,27 @@ class ITQTransform(BaseVectorTransform):
         self.pca.train(x)
         v = self.pca.apply(x)
         
-        # Set random seed
-        if self.seed is not None:
-            np.random.seed(self.seed)
-            
-        # Initialize random rotation
-        R = np.random.randn(self.d_out, self.d_out).astype('float32')
-        U, _, Vh = np.linalg.svd(R)
-        R = U @ Vh  # Make orthogonal
+        # Initialize random rotation via SVD on random normal (orthogonal)
+        if self._key is not None:
+            kR, self._key = mx.random.split(self._key, num=2)
+            R0 = mx.random.normal(shape=(self.d_out, self.d_out), key=kR).astype(mx.float32)
+        else:
+            R0 = mx.random.normal(shape=(self.d_out, self.d_out)).astype(mx.float32)
+        U, _, Vt = mx.linalg.svd(R0, stream=mx.cpu)
+        R = mx.matmul(U, Vt)
         
         # Iterative quantization
         for _ in range(self.n_iter):
             # Fix R, update B
-            z = mx.matmul(v, mx.array(R))
+            z = mx.matmul(v, R)
             B = mx.sign(z)
             
             # Fix B, update R
-            C = mx.matmul(v.T, B).numpy()
-            U, _, Vh = np.linalg.svd(C)
-            R = U @ Vh
+            C = mx.matmul(v.T, B)
+            U2, _, Vt2 = mx.linalg.svd(C, stream=mx.cpu)
+            R = mx.matmul(U2, Vt2)
             
-        self.rotation_matrix = mx.array(R)
+        self.rotation_matrix = R
         self._is_trained = True
         
     def apply(self, x: mx.array) -> mx.array:

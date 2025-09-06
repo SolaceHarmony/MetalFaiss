@@ -6,6 +6,7 @@ import mlx.core as mx
 from typing import Optional
 from .base_vector_transform import BaseVectorTransform
 from .random_rotation import RandomRotationTransform
+from ..faissmlx.svd import topk_svd
 
 class PCAMatrixTransform(BaseVectorTransform):
     """PCA matrix transform.
@@ -69,9 +70,9 @@ class PCAMatrixTransform(BaseVectorTransform):
             except AttributeError:
                 pass
             
-        # Use SVD for principal components: X = U S V^T; components are columns of V
-        U, S, Vt = mx.linalg.svd(x_centered, stream=mx.cpu)
-        V = Vt.T
+        # Use tiled block power iteration SVD to get leading components on GPU
+        U_, S, Vt = topk_svd(x_centered, k=self.d_in)
+        V = mx.transpose(Vt)
         if self.eigen_power != 0:
             eigvals = (S * S) / (x_centered.shape[0] - 1)
             scale = (eigvals[: self.d_out] + self.epsilon) ** (self.eigen_power / 2.0)

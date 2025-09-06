@@ -15,18 +15,14 @@ __version__ = "0.1.0"
 __author__ = "Sydney Bach"
 __email__ = "sydney@solace.ofharmony.ai"
 
-# Check MLX availability - if not available, allow NumPy fallback for basic functionality
+# Require MLX. No fallbacks.
 try:
     import mlx.core as mx
     _HAS_MLX = True
-except ImportError:
-    _HAS_MLX = False
-    import warnings
-    warnings.warn(
-        "MLX is not available on this platform. Using NumPy fallback. "
-        "For optimal performance on Apple Silicon, install MLX with: pip install mlx",
-        UserWarning
-    )
+except ImportError as e:
+    raise RuntimeError(
+        "MLX is required for MetalFaiss. Install with: pip install mlx"
+    ) from e
 
 # Core classes
 from .metric_type import MetricType
@@ -45,13 +41,10 @@ from .Utils import load_data, encode_sentences, create_matrix, normalize_data
 # Distance functions
 from .distances import pairwise_L2sqr
 
-# Clustering (only if MLX is available)
-if _HAS_MLX:
-    try:
-        from .clustering import BaseClustering
-    except ImportError:
-        BaseClustering = None
-else:
+# Clustering is MLX-only; import if present
+try:
+    from .clustering import BaseClustering
+except ImportError:
     BaseClustering = None
 
 # Export all functionality

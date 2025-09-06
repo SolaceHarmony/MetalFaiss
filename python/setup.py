@@ -11,7 +11,6 @@ setup(
     author="MetalFaiss Team",
     packages=find_packages(),
     install_requires=[
-        "numpy>=1.19.0",
         "mlx>=0.0.1",
     ],
     python_requires=">=3.8",

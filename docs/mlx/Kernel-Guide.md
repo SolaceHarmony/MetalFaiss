@@ -1,0 +1,135 @@
+# MLX + Metal Kernel Guide (Practical)
+
+This guide captures patterns that work reliably with `mlx.core.fast.metal_kernel`, plus GPU–tiling strategies and numerics that hold up on real Apple GPUs.
+
+## fast.metal_kernel: Body Only + Header
+
+- Put includes and namespaces into `header`; the `source` must be the kernel body (no function signature).
+- Pass shapes via small buffers (`uint[N]`) instead of baking sizes into code.
+- Configure grid/threadgroup explicitly; use execution–width multiples (32) and cap ≤ 1024 threads/tg.
+
+Example (column–wise projection coefficients c = Q^T v):
+
+```python
+# python/metalfaiss/faissmlx/kernels/qr_kernels.py
+header = """#include <metal_stdlib>\nusing namespace metal;\n"""
+source = r"""
+    uint gid = thread_position_in_grid.x;
+    uint m = (uint)shape[0];
+    uint k = (uint)shape[1];
+    if (gid >= k) return;
+    float acc = 0.0f;
+    for (uint i = 0; i < m; ++i) {
+        acc += Q[i * k + gid] * v[i];
+    }
+    out[gid] = acc;
+""";
+
+kernel = mx.fast.metal_kernel(
+    name="qr_col_dot",
+    input_names=["Q", "v", "shape"],
+    output_names=["out"],
+    header=header,
+    source=source,
+    ensure_row_contiguous=True,
+)
+```
+
+Launch:
+
+```python
+m, k = int(Q.shape[0]), int(Q.shape[1])
+shape = mx.array([m, k], dtype=mx.uint32)
+total = k
+tgroup = 64
+nthreads = ((total + tgroup - 1) // tgroup) * tgroup
+grid = (nthreads, 1, 1)
+threadgroup = (tgroup, 1, 1)
+(out,) = kernel(
+    inputs=[Q, v, shape],
+    output_shapes=[(k,)],
+    output_dtypes=[Q.dtype],
+    grid=grid,
+    threadgroup=threadgroup,
+)
+```
+
+## Autoswitch (Size/Device–Aware)
+
+Select implementations based on device and problem size (mirrors robust patterns in `ember_ml`):
+
+- Small/medium: MLX vectorized ops (no JIT latency; plenty fast).
+- Large: tiled Metal kernels for inner loops (dot products, panel updates).
+- Numerically tough tiles: limb–based accumulation (HPC16x8) for dot and norm.
+
+Pseudo:
+
+```python
+def choose_qr_impl(m, k, dev):
+    if m*k < 1<<18: return "MLX_MGS"
+    if dev.is_gpu:   return "KERNEL_MGS"
+    return "MLX_MGS"
+```
+
+## QR Orthonormalization (MGS, two passes)
+
+- Use two–pass Modified Gram–Schmidt for stability at fp32.
+- Offload `c = Q^T v` to the Metal kernel when it wins; update `v ← v − Qc` in MLX.
+
+Snippet:
+
+```python
+# python/metalfaiss/faissmlx/qr.py (simplified)
+Q = mx.zeros((m, m), dtype=A.dtype)
+R = mx.zeros((m, n), dtype=A.dtype)
+for k in range(min(m, n)):
+    v = A[:, k]
+    if k > 0:
+        Qk = Q[:, :k]
+        c1 = project_coeffs(Qk, v)  # kernel
+        v  = v - mx.matmul(Qk, c1)
+        c2 = project_coeffs(Qk, v)
+        v  = v - mx.matmul(Qk, c2)
+        R[:k, k] = c1 + c2
+    rkk = mx.sqrt(mx.sum(v * v))
+    qk  = v / mx.where(rkk > 0, rkk, 1)
+    Q[:, k] = qk
+    R[k, k] = rkk
+```
+
+## SVD (Top‑k, Subspace Power Iteration)
+
+- Iterate Z = A^T(A V) and re‑orthonormalize V with QR.
+- Baseline is MLX GEMM (tiled internally). For more gains, write a body‑only Metal kernel for the Z step that stages A and V tiles into threadgroup memory and computes Z tiles.
+
+Outline:
+
+```python
+V = orthonormal_columns(mx.random.normal((n, k)))
+for _ in range(iters):
+    AV = mx.matmul(A, V)
+    Z  = mx.matmul(A.T, AV)        # or a tiled Metal kernel
+    V, _ = pure_mlx_qr(Z)
+U  = mx.matmul(A, V)
+S  = mx.sqrt(mx.sum(U*U, axis=0))
+U  = U / mx.where(S > 0, S, 1)[None, :]
+```
+
+## HPC16x8 (128‑bit Limb Accumulation)
+
+- When float32 accumulations drift (long dots, Gram updates), emulate extended precision via 16‑bit limbs:
+  - Accumulate partial sums into 8×16‑bit limbs (radix 2^16) per thread/wave.
+  - Reduce and carry–propagate to recover a high component; convert back to float32.
+- Targeted use: projections `Q^T v`, vector norms, QR rank‑k updates.
+
+## Non‑Square Orthogonality
+
+- Left‑orthonormal (columns): Q ∈ R^{m×n}, Q^T Q = I_n.
+- Right‑orthonormal (rows): Q ∈ R^{m×n}, Q Q^T = I_m.
+- For completion: append random vectors, project out existing subspace with two‑pass MGS, normalize — repeat until full basis.
+
+## Bench & Prune
+
+- Always benchmark MLX vs kernel for your sizes.
+- Keep one winner per path to simplify maintenance; re‑run benchmarks when shapes/devices change.
+
