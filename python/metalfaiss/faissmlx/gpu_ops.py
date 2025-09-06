@@ -1,12 +1,14 @@
 """
-gpu_ops.py - GPU-optimized operations for MetalFaiss
+GPU ops (MLX): placement, math, and batching helpers (plain-speech)
 
-This module provides GPU implementations of core operations using MLX.
-Operations are optimized for GPU execution and include memory management
-utilities.
+Overview
+- Uses MLX vectorized ops for core math; kernels are available elsewhere.
+- Placement is primarily via MLX defaults; when MLX exposes explicit array moves,
+  these helpers will adopt them.
 
-Note: Currently uses MLX's automatic device placement, but prepared for
-more explicit control when MLX adds those features.
+Notes
+- Avoid surprising device jumps by keeping a stable default device and streams
+  during hot loops. Use `mx.set_default_device(mx.gpu)` at program start on GPU.
 """
 
 import mlx.core as mx
@@ -60,65 +62,70 @@ DEFAULT_GPU = GpuResources()
 # GPU Array Operations
 
 def to_gpu(x: Union[mx.array, "np.ndarray", List]) -> mx.array:
-    """Move array to GPU.
-    
-    Args:
-        x: Input array-like object
-        
-    Returns:
-        MLX array on GPU
+    """Ensure `x` is an MLX array (placed on the current default device).
+
+    MLX currently binds ops to the default device/stream; when explicit array
+    moves are available (e.g., `.to_device()`), this helper will adopt them.
     """
     if isinstance(x, mx.array):
-        # TODO: Add explicit device move when MLX supports it
         return x
     # Lazy import to avoid hard dependency on NumPy
-    elif 'numpy' in str(type(x)) or type(x).__module__ == 'numpy':
+    if 'numpy' in str(type(x)) or getattr(type(x), "__module__", "").startswith("numpy"):
         return mx.array(x)
-    else:
-        return mx.array(x)
+    return mx.array(x)
 
 def from_gpu(x: mx.array):
-    """Move array from GPU to CPU.
-    
-    Args:
-        x: Input MLX array
-        
-    Returns:
-        NumPy array on CPU
-    """
-    # TODO: Add explicit device move when MLX supports it
+    """Materialize an MLX array to a NumPy array on host memory."""
     return x.numpy()
 
 # GPU Matrix Operations
 
 def gpu_matmul(a: mx.array, b: mx.array) -> mx.array:
-    """GPU-optimized matrix multiplication.
-    
-    Args:
-        a: First matrix
-        b: Second matrix
-        
-    Returns:
-        Matrix product on GPU
+    """Matrix multiply via MLX (backend-optimized).
+
+    When the kernel path is preferred (e.g., for large tiles), call the tiled
+    GEMMs in `faissmlx/kernels/gemm_kernels.py`.
     """
-    # TODO: Add optimized implementation when MLX adds GPU-specific ops
     return mx.matmul(a, b)
 
 def gpu_l2_distances(x: mx.array, y: mx.array) -> mx.array:
-    """GPU-optimized L2 distance computation.
-    
-    Args:
-        x: First vectors (n, d)
-        y: Second vectors (m, d)
-        
-    Returns:
-        Distance matrix (n, m) on GPU
-    """
-    # Compute (a-b)^2 = a^2 + b^2 - 2ab efficiently on GPU
+    """L2 distances: (a-b)^2 = a^2 + b^2 - 2ab (full matrix)."""
     xx = mx.sum(x * x, axis=1, keepdims=True)
     yy = mx.sum(y * y, axis=1)
     xy = gpu_matmul(x, mx.transpose(y))
     return xx + yy - 2 * xy
+
+
+def gpu_l2_distances_chunked(x: mx.array, y: mx.array, row_chunk: Optional[int] = None) -> mx.array:
+    """L2 distances computed in row chunks to limit peak memory.
+
+    Parameters
+    - x: (n, d)
+    - y: (m, d)
+    - row_chunk: process this many rows of x per chunk; if None, chooses a
+      heuristic based on device memory info (when available) or defaults.
+    """
+    n = int(x.shape[0]); d = int(x.shape[1]); m = int(y.shape[0])
+    if row_chunk is None or row_chunk <= 0:
+        # Heuristic: fit ~64MB worth of partial xy blocks (float32)
+        try:
+            import mlx.core.metal as metal
+            info = metal.device_info()
+            mem = int(info.get("max_recommended_working_set_size", 256 << 20))
+        except Exception:
+            mem = 256 << 20
+        bytes_per_row = 4 * (m + d)  # xy row + x row square terms
+        row_chunk = max(1, min(n, mem // max(bytes_per_row, 1)))
+
+    outs = []
+    for s in range(0, n, row_chunk):
+        e = min(n, s + row_chunk)
+        xs = x[s:e, :]
+        xx = mx.sum(xs * xs, axis=1, keepdims=True)
+        yy = mx.sum(y * y, axis=1)
+        xy = gpu_matmul(xs, mx.transpose(y))
+        outs.append(xx + yy - 2 * xy)
+    return mx.concatenate(outs, axis=0)
 
 def gpu_cosine_distances(x: mx.array, y: mx.array) -> mx.array:
     """GPU-optimized cosine distance computation.
