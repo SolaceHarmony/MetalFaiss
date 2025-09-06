@@ -26,8 +26,12 @@ How this repo applies the patterns
 - docs/mlx/Comprehensive-MLX-Metal-Guide.md — The definitive guide to writing, launching, and optimizing kernels with MLX in this project.
 - docs/research/Journal.md — A log of experiments, benchmarks, and design rationale for our kernels.
 - docs/mlx/Kernel-Guide.md — Working kernel snippets (body+header), grid/tg selection, autoswitch ideas.
+- docs/mlx/Fastest-Patterns.md — Copyable recipes for the fastest patterns (fused IVF scan+select, warp reductions, tiling, streams).
+- docs/mlx/Streams-Guide.md — Plain‑speech guide to streams, overlap, and callbacks.
+- docs/mlx/Spot-Tests.md — Hands‑on microbenches to validate patterns locally.
 - docs/mlx/Orthogonality.md — Practical left/right orthogonality and completion.
 - `python/metalfaiss/faissmlx/kernels/qr_kernels.py` — Body‑only projection kernel; header for includes.
+- `python/metalfaiss/faissmlx/kernels/ivf_kernels.py` — Fused IVF list scan + top‑k kernels (single, batched, chunk+merge).
 - `python/metalfaiss/faissmlx/qr.py` — Two‑pass MGS QR with optional kernel projections.
 - `python/metalfaiss/faissmlx/svd.py` — MLX tiled subspace SVD; designed to slot in a kernelized Z‑step.
 

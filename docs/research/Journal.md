@@ -198,6 +198,33 @@ Entries follow a simple structure: Context → Method → Results → Analysis �
   - 512×256, k=32, iters=3:
     - MLX: 0.0137s; Kernel (mono): 0.0135s; Kernel (band=16): 0.0146s → no win at this size.
 
+---
+
+## 2025-09-06 — IVF fused scan + selection kernels and benchmarks
+
+- Context:
+  - Push IVFFlat search onto the GPU: compute distances and select top‑k inside the kernel to reduce memory traffic and host/device handoffs.
+
+- Method:
+  - `faissmlx/kernels/ivf_kernels.py`:
+    - `ivf_list_topk_l2`: single‑query fused scan + top‑k (k≤32), one threadgroup strides rows; per‑thread local (k) with threadgroup reduction to final (k).
+    - `ivf_list_topk_l2_batch`: batched variant (one threadgroup per query) for shared candidate sets.
+    - `device_topk_merge`: merge P partial top‑k lists on device; used by `ivf_list_topk_l2_chunked_device_merge` for long lists.
+  - Bench harness: `unittest/test_ivf_benchmarks.py` explores permutations (baseline MLX vs fused concat/per‑list/chunked, plus device‑merge and batched).
+
+- Results (d=64, N=32k, nlist=128, Q=16):
+  - nprobe=1, k=10: Baseline 0.0167s; Fused concat 0.0166s; Chunk+device 0.0206s; Batched(same X) 0.0013s.
+  - nprobe=8, k=10: Baseline 0.1508s; Fused concat 0.1377s; Chunk+device 0.1477s; Batched(same X) 0.0092s.
+  - nprobe=1, k=32: Baseline 0.0279s; Fused concat 0.0279s; Chunk+device 0.0284s; Batched(same X) 0.0021s.
+  - nprobe=8, k=32: Baseline 0.1677s; Fused concat 0.1660s; Chunk+device 0.1590s; Batched(same X) 0.0101s.
+
+- Analysis:
+  - Fused concat matches or slightly beats MLX baseline at these sizes; host chunking is slow; device‑merge chunking nears parity; batching is extremely fast when candidates are shared.
+
+- Next Steps:
+  - Support multi‑TG first pass (long lists) and device‑side two‑pass reduction.
+  - Group queries by probed lists to batch real workloads; schedule batches per group on streams.
+
 - Analysis:
   - For small k and moderate m,n, banding reduces peak working set and improves cache locality, yielding clear gains.
   - For larger tiles, mono tiled kernel remains competitive; banding can add overhead. Autoswitch should gate banding by shape.

@@ -107,4 +107,5 @@ References
 - Ember ML kernel code (QR/Cholesky/SVD) — rich examples of simd reductions and safety.
 - Apple GPU execution width (32); MLX fast.metal_kernel API.
 - See also: docs/mlx/Kernel-Guide.md for end-to-end MLX + Metal usage.
-
+ - Fast patterns: docs/mlx/Fastest-Patterns.md for copyable recipes (fused IVF scan+select, warp reductions, tiled GEMM, streams).
+ - Streams: docs/mlx/Streams-Guide.md for practical overlap and stream-scoped callbacks.

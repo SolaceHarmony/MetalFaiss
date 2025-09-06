@@ -114,6 +114,11 @@ Both follow the header/body and explicit launch size patterns and pass `shape=[m
 - SVD power iteration: we prefer two GEMM‑like kernels (A@V then Aᵀ@B) instead of a monolithic kernel — easier to tile, cache, and schedule.
 - For advanced SVD strategies, including "banding" and multi-stream execution to improve cache locality and overlap work, see the project's [Research Journal](./../research/Journal.md).
 
+7.1) IVF Search (Fused Distance + Top‑k)
+
+- For IVFFlat‑style search, concatenate vectors from probed lists and compute distances + top‑k inside a single fused kernel to avoid materializing full distance arrays.
+- See `python/metalfaiss/faissmlx/kernels/ivf_kernels.py` (single, batched, and chunk+device‑merge variants) and the quick recipes in `docs/mlx/Fastest-Patterns.md`.
+
 8) Debugging and Diagnostics
 
 - Start small: single thread or tiny tiles, then scale.
