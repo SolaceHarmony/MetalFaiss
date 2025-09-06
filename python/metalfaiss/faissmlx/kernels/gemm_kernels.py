@@ -34,6 +34,16 @@ References
 - docs/mlx/Kernel-Guide.md:120
 - docs/mlx/Comprehensive-MLX-Metal-Guide.md:1
 - docs/metal/Shader-Optimization-Tips.md:7
+See also
+- docs/mlx/GEMM-Kernels.md for flags, tuning, and validation tips.
+
+Runtime toggles
+- `METALFAISS_USE_GEMM_KERNEL=1` – enable Metal kernels (otherwise uses mx.matmul)
+- `METALFAISS_GEMM_RECTSAFE=1` – use rectsafe AT_B mapping (unique-writer cooperative loads)
+- `METALFAISS_GEMM_TILE_SQ=T` – square tile size for AV/AT_B square kernels (default 16)
+- `METALFAISS_GEMM_DB=1` – enable double buffering (ping‑pong) for square kernels
+- `METALFAISS_GEMM_V4=1` – attempt float4 vectorized loads when 16‑byte aligned; falls back otherwise
+- `METALFAISS_GEMM_PAD_ATB=1` – pad AT_B shared tiles second dim (+1) to mitigate bank conflicts
 """
 
 from __future__ import annotations
@@ -124,6 +134,34 @@ def _select_tile_atb() -> Tuple[int, int, int]:
     if "m3" in name:
         return 8, 16, 32
     return 16, 16, 16
+
+
+def _square_T_default() -> int:
+    """Select the square tile T for the square‑tiled kernels.
+
+    Env override: METALFAISS_GEMM_TILE_SQ (e.g., 8, 16, 32). Default 16.
+    """
+    env = os.environ.get("METALFAISS_GEMM_TILE_SQ")
+    if env:
+        try:
+            t = int(env)
+            if 1 <= t <= 64:
+                return t
+        except Exception:
+            pass
+    return 16
+
+
+def _use_db() -> bool:
+    return os.environ.get("METALFAISS_GEMM_DB", "0") == "1"
+
+
+def _use_v4() -> bool:
+    return os.environ.get("METALFAISS_GEMM_V4", "0") == "1"
+
+
+def _pad_atb() -> bool:
+    return os.environ.get("METALFAISS_GEMM_PAD_ATB", "0") == "1"
 
 def _format_av_source(TM: int, T: int) -> str:
     """Return the AV kernel body with chosen tile sizes.
@@ -264,6 +302,499 @@ def _format_at_b_source(TN: int, TI: int, TK: int) -> str:
 """)
     return tpl.substitute(TN=TN, TI=TI, TK=TK)
 
+def _format_at_b_source_rectsafe(TN: int, TI: int, TK: int) -> str:
+    """Race-free loads for AT_B using unique writers per tile element.
+
+    Each thread writes a unique (row r, col) element of Atile[TI][TN] or Btile[TI][TK]
+    by striding r across TI using TN/TK respectively. Two barriers ensure
+    visibility before use and before the next phase, preventing read/write hazards.
+    """
+    from string import Template
+    tpl = Template(r"""
+    // Threadgroup-tiled GEMM for Z = A^T * B (race-free loads)
+    // Shapes: A (m,n), B (m,k), Z (n,k), shape=[m,n,k]
+    const uint TN = $TN; // tile size along n (rows of Z)
+    const uint TI = $TI; // tile size along m (shared dimension)
+    const uint TK = $TK; // tile size along k (cols of Z)
+
+    threadgroup float Atile[TI][TN]; // A^T tile: [i in m][n in n]
+    threadgroup float Btile[TI][TK];
+
+    int m = int(shape[0]);
+    int n = int(shape[1]);
+    int k = int(shape[2]);
+
+    uint local_x = thread_position_in_threadgroup.x; // 0..TK-1 -> col in tile
+    uint local_y = thread_position_in_threadgroup.y; // 0..TN-1 -> row in tile
+
+    int block_x = int(threadgroup_position_in_grid.x); // tile col index in k
+    int block_y = int(threadgroup_position_in_grid.y); // tile row index in n
+
+    int rowN = block_y * int(TN) + int(local_y); // output row in n
+    int colK = block_x * int(TK) + int(local_x); // output col in k
+
+    float acc = 0.0f;
+
+    int itiles = (m + int(TI) - 1) / int(TI); // walk shared dimension m
+    for (int t = 0; t < itiles; ++t) {
+        int i0 = t * int(TI);
+
+        // Fill A^T tile: columns indexed by local_y (0..TN-1), rows cover [0..TI) in strides of TK
+        for (uint r = local_x; r < TI; r += TK) {
+            int i = i0 + int(r);
+            float a_val = 0.0f;
+            if (i < m && rowN < n) {
+                a_val = A[i * n + rowN]; // A[i, rowN]
+            }
+            Atile[r][local_y] = a_val; // Atile[TI][TN]
+        }
+
+        // Fill B tile: columns indexed by local_x (0..TK-1), rows cover [0..TI) in strides of TN
+        for (uint r = local_y; r < TI; r += TN) {
+            int i = i0 + int(r);
+            float b_val = 0.0f;
+            if (i < m && colK < k) {
+                b_val = B[i * k + colK]; // B[i, colK]
+            }
+            Btile[r][local_x] = b_val; // Btile[TI][TK]
+        }
+
+        // Barrier required: tiles are consumed by multiple SIMD groups
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        // Accumulate over TI
+        for (uint p = 0; p < TI; ++p) {
+            acc = fma(Atile[p][local_y], Btile[p][local_x], acc);
+        }
+
+        // Barrier before next iteration's loads
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+
+    if (rowN < n && colK < k) {
+        Z[rowN * k + colK] = acc;
+    }
+""")
+    return tpl.substitute(TN=TN, TI=TI, TK=TK)
+
+def _format_av_source_square_scalar(T: int, V4: bool) -> str:
+    from string import Template
+    tpl = Template(r"""
+    // Square thread-tiled GEMM: C = A * V
+    // Shapes via shape buffer: [m, n, k]
+    const uint T = $T;
+
+    // Pad second dimension to mitigate bank conflicts
+    threadgroup float Asub[T][T+1];
+    threadgroup float Vsub[T][T+1];
+
+    int m = int(shape[0]);
+    int n = int(shape[1]);
+    int k = int(shape[2]);
+
+    uint tx = thread_position_in_threadgroup.x; // 0..T-1
+    uint ty = thread_position_in_threadgroup.y; // 0..T-1
+
+    int block_x = int(threadgroup_position_in_grid.x);
+    int block_y = int(threadgroup_position_in_grid.y);
+    int col = block_x * int(T) + int(tx);
+    int row = block_y * int(T) + int(ty);
+
+    float acc = 0.0f;
+    int ntiles = (n + int(T) - 1) / int(T);
+    for (int t = 0; t < ntiles; ++t) {
+        int a_col = t * int(T) + int(tx);
+        int v_row = t * int(T) + int(ty);
+
+        // Vectorized group load: base lane = (tx & ~3)
+        const bool USE_V4 = $V4;
+        if (USE_V4) {
+            uint base_tx = tx & 0xFFFFFFFCu; // multiple of 4 within tile
+            int a_col_base = t * int(T) + int(base_tx);
+            int col_base = block_x * int(T) + int(base_tx);
+            uint idxA_base = uint(row) * uint(n) + uint(a_col_base);
+            uint idxV_base = uint(v_row) * uint(k) + uint(col_base);
+            bool in_tile = (base_tx + 3u) < T;
+            bool a_ok = (row < m) && (a_col_base + 3 < n) && ((idxA_base & 3u) == 0u);
+            bool v_ok = (v_row < n) && (col_base + 3 < k) && ((idxV_base & 3u) == 0u);
+            bool group_ok = in_tile && a_ok && v_ok;
+            if (group_ok) {
+                if ((tx & 3u) == 0u) {
+                    const device float4* A4 = (const device float4*)(A);
+                    float4 a4 = A4[idxA_base >> 2];
+                    Asub[ty][base_tx + 0] = a4.x;
+                    Asub[ty][base_tx + 1] = a4.y;
+                    Asub[ty][base_tx + 2] = a4.z;
+                    Asub[ty][base_tx + 3] = a4.w;
+                    const device float4* V4p = (const device float4*)(V);
+                    float4 v4 = V4p[idxV_base >> 2];
+                    Vsub[ty][base_tx + 0] = v4.x;
+                    Vsub[ty][base_tx + 1] = v4.y;
+                    Vsub[ty][base_tx + 2] = v4.z;
+                    Vsub[ty][base_tx + 3] = v4.w;
+                }
+            } else {
+                float a_val = 0.0f;
+                if (row < m && a_col < n) { a_val = A[row * n + a_col]; }
+                Asub[ty][tx] = a_val;
+                float v_val = 0.0f;
+                if (v_row < n && col < k) { v_val = V[v_row * k + col]; }
+                Vsub[ty][tx] = v_val;
+            }
+        } else {
+            float a_val = 0.0f;
+            if (row < m && a_col < n) { a_val = A[row * n + a_col]; }
+            Asub[ty][tx] = a_val;
+            float v_val = 0.0f;
+            if (v_row < n && col < k) { v_val = V[v_row * k + col]; }
+            Vsub[ty][tx] = v_val;
+        }
+
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        for (uint p = 0; p < T; ++p) { acc = fma(Asub[ty][p], Vsub[p][tx], acc); }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    if (row < m && col < k) { C[row * k + col] = acc; }
+""")
+    return tpl.substitute(T=T, V4=int(1 if V4 else 0))
+
+def _format_av_source_square_db(T: int, V4: bool) -> str:
+    from string import Template
+    tpl = Template(r"""
+    // Square thread-tiled GEMM with double buffering: C = A * V
+    // Shapes via shape buffer: [m, n, k]
+    const uint T = $T;
+
+    threadgroup float As0[T][T+1];
+    threadgroup float As1[T][T+1];
+    threadgroup float Vs0[T][T+1];
+    threadgroup float Vs1[T][T+1];
+
+    int m = int(shape[0]);
+    int n = int(shape[1]);
+    int k = int(shape[2]);
+
+    uint tx = thread_position_in_threadgroup.x;
+    uint ty = thread_position_in_threadgroup.y;
+
+    int block_x = int(threadgroup_position_in_grid.x);
+    int block_y = int(threadgroup_position_in_grid.y);
+    int col = block_x * int(T) + int(tx);
+    int row = block_y * int(T) + int(ty);
+
+    float acc = 0.0f;
+    int ntiles = (n + int(T) - 1) / int(T);
+    if (ntiles == 0) { if (row < m && col < k) { C[row*k + col] = 0.0f; } return; }
+
+    // Preload tile 0 into buffer 0
+    {
+        int v_row = 0 * int(T) + int(ty);
+        const bool USE_V4 = $V4;
+        if (USE_V4) {
+            uint base_tx = tx & 0xFFFFFFFCu;
+            int a_col_base = 0 * int(T) + int(base_tx);
+            int col_base = block_x * int(T) + int(base_tx);
+            uint idxA_base = uint(row) * uint(n) + uint(a_col_base);
+            uint idxV_base = uint(v_row) * uint(k) + uint(col_base);
+            bool in_tile = (base_tx + 3u) < T;
+            bool a_ok = (row < m) && (a_col_base + 3 < n) && ((idxA_base & 3u) == 0u);
+            bool v_ok = (v_row < n) && (col_base + 3 < k) && ((idxV_base & 3u) == 0u);
+            bool group_ok = in_tile && a_ok && v_ok;
+            if (group_ok) {
+                if ((tx & 3u) == 0u) {
+                    const device float4* A4 = (const device float4*)(A);
+                    float4 a4 = A4[idxA_base >> 2];
+                    As0[ty][base_tx + 0] = a4[0]; As0[ty][base_tx + 1] = a4[1]; As0[ty][base_tx + 2] = a4[2]; As0[ty][base_tx + 3] = a4[3];
+                    const device float4* V4p = (const device float4*)(V);
+                    float4 v4 = V4p[idxV_base >> 2];
+                    Vs0[ty][base_tx + 0] = v4[0]; Vs0[ty][base_tx + 1] = v4[1]; Vs0[ty][base_tx + 2] = v4[2]; Vs0[ty][base_tx + 3] = v4[3];
+                }
+            } else {
+                int a_col = 0 * int(T) + int(tx);
+                float a_val = 0.0f; if (row < m && a_col < n) { a_val = A[row*n + a_col]; }
+                As0[ty][tx] = a_val;
+                float v_val = 0.0f; if (v_row < n && col < k) { v_val = V[v_row*k + col]; }
+                Vs0[ty][tx] = v_val;
+            }
+        } else {
+            int a_col = 0 * int(T) + int(tx);
+            float a_val = 0.0f; if (row < m && a_col < n) { a_val = A[row*n + a_col]; }
+            As0[ty][tx] = a_val;
+            float v_val = 0.0f; if (v_row < n && col < k) { v_val = V[v_row*k + col]; }
+            Vs0[ty][tx] = v_val;
+        }
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    // Main loop with ping-pong buffers
+    for (int t = 0; t < ntiles - 1; ++t) {
+        bool use0 = (t % 2) == 0;
+        // Compute on current buffer
+        if (use0) { for (uint p = 0; p < T; ++p) { acc = fma(As0[ty][p], Vs0[p][tx], acc); } }
+        else      { for (uint p = 0; p < T; ++p) { acc = fma(As1[ty][p], Vs1[p][tx], acc); } }
+
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        // Preload next tile (t+1) into the other buffer
+        int v_row2 = (t + 1) * int(T) + int(ty);
+        const bool USE_V4_2 = $V4;
+        if (use0) {
+            if (USE_V4_2) {
+                uint base_tx = tx & 0xFFFFFFFCu;
+                int a_col_base = (t + 1) * int(T) + int(base_tx);
+                int col_base = block_x * int(T) + int(base_tx);
+                uint idxA_base = uint(row) * uint(n) + uint(a_col_base);
+                uint idxV_base = uint(v_row2) * uint(k) + uint(col_base);
+                bool in_tile = (base_tx + 3u) < T;
+                bool a_ok = (row < m) && (a_col_base + 3 < n) && ((idxA_base & 3u) == 0u);
+                bool v_ok = (v_row2 < n) && (col_base + 3 < k) && ((idxV_base & 3u) == 0u);
+                bool group_ok = in_tile && a_ok && v_ok;
+                if (group_ok) {
+                    if ((tx & 3u) == 0u) {
+                        const device float4* A4 = (const device float4*)(A); float4 a4 = A4[idxA_base >> 2];
+                        As1[ty][base_tx+0]=a4.x; As1[ty][base_tx+1]=a4.y; As1[ty][base_tx+2]=a4.z; As1[ty][base_tx+3]=a4.w;
+                        const device float4* V4p = (const device float4*)(V); float4 v4 = V4p[idxV_base >> 2];
+                        Vs1[ty][base_tx+0]=v4.x; Vs1[ty][base_tx+1]=v4.y; Vs1[ty][base_tx+2]=v4.z; Vs1[ty][base_tx+3]=v4.w;
+                    }
+                } else {
+                    int a_col2 = (t + 1) * int(T) + int(tx);
+                    float a_val = 0.0f; if (row < m && a_col2 < n) { a_val = A[row*n + a_col2]; } As1[ty][tx] = a_val;
+                    float v_val = 0.0f; if (v_row2 < n && col < k) { v_val = V[v_row2*k + col]; } Vs1[ty][tx] = v_val;
+                }
+            } else {
+                int a_col2 = (t + 1) * int(T) + int(tx);
+                float a_val = 0.0f; if (row < m && a_col2 < n) { a_val = A[row*n + a_col2]; } As1[ty][tx] = a_val;
+                float v_val = 0.0f; if (v_row2 < n && col < k) { v_val = V[v_row2*k + col]; } Vs1[ty][tx] = v_val;
+            }
+        } else {
+            if (USE_V4_2) {
+                uint base_tx = tx & 0xFFFFFFFCu;
+                int a_col_base = (t + 1) * int(T) + int(base_tx);
+                int col_base = block_x * int(T) + int(base_tx);
+                uint idxA_base = uint(row) * uint(n) + uint(a_col_base);
+                uint idxV_base = uint(v_row2) * uint(k) + uint(col_base);
+                bool in_tile = (base_tx + 3u) < T;
+                bool a_ok = (row < m) && (a_col_base + 3 < n) && ((idxA_base & 3u) == 0u);
+                bool v_ok = (v_row2 < n) && (col_base + 3 < k) && ((idxV_base & 3u) == 0u);
+                bool group_ok = in_tile && a_ok && v_ok;
+                if (group_ok) {
+                    if ((tx & 3u) == 0u) {
+                        const device float4* A4 = (const device float4*)(A); float4 a4 = A4[idxA_base >> 2];
+                        As0[ty][base_tx+0]=a4.x; As0[ty][base_tx+1]=a4.y; As0[ty][base_tx+2]=a4.z; As0[ty][base_tx+3]=a4.w;
+                        const device float4* V4p = (const device float4*)(V); float4 v4 = V4p[idxV_base >> 2];
+                        Vs0[ty][base_tx+0]=v4.x; Vs0[ty][base_tx+1]=v4.y; Vs0[ty][base_tx+2]=v4.z; Vs0[ty][base_tx+3]=v4.w;
+                    }
+                } else {
+                    int a_col2 = (t + 1) * int(T) + int(tx);
+                    float a_val = 0.0f; if (row < m && a_col2 < n) { a_val = A[row*n + a_col2]; } As0[ty][tx] = a_val;
+                    float v_val = 0.0f; if (v_row2 < n && col < k) { v_val = V[v_row2*k + col]; } Vs0[ty][tx] = v_val;
+                }
+            } else {
+                int a_col2 = (t + 1) * int(T) + int(tx);
+                float a_val = 0.0f; if (row < m && a_col2 < n) { a_val = A[row*n + a_col2]; } As0[ty][tx] = a_val;
+                float v_val = 0.0f; if (v_row2 < n && col < k) { v_val = V[v_row2*k + col]; } Vs0[ty][tx] = v_val;
+            }
+        }
+
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+
+    // Final tile compute
+    if ((ntiles - 1) >= 0) {
+        bool use0 = ((ntiles - 1) % 2) == 0;
+        if (use0) { for (uint p = 0; p < T; ++p) { acc = fma(As0[ty][p], Vs0[p][tx], acc); } }
+        else      { for (uint p = 0; p < T; ++p) { acc = fma(As1[ty][p], Vs1[p][tx], acc); } }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+
+    if (row < m && col < k) { C[row * k + col] = acc; }
+""")
+    return tpl.substitute(T=T, V4=int(1 if V4 else 0))
+
+def _format_at_b_source_square(T: int, PAD: bool, V4: bool) -> str:
+    from string import Template
+    tpl = Template(r"""
+    // Threadgroup-tiled GEMM for Z = A^T * B (square tiles)
+    // Shapes: A (m,n), B (m,k), Z (n,k), shape=[m,n,k]
+    const uint T = $T;
+
+    threadgroup float Atile[T][T+$PAD];
+    threadgroup float Btile[T][T+$PAD];
+
+    int m = int(shape[0]);
+    int n = int(shape[1]);
+    int k = int(shape[2]);
+
+    uint tx = thread_position_in_threadgroup.x;
+    uint ty = thread_position_in_threadgroup.y;
+
+    int block_x = int(threadgroup_position_in_grid.x);
+    int block_y = int(threadgroup_position_in_grid.y);
+    int colK = block_x * int(T) + int(tx);
+    int rowN = block_y * int(T) + int(ty);
+
+    float acc = 0.0f;
+    int itiles = (m + int(T) - 1) / int(T);
+    for (int t = 0; t < itiles; ++t) {
+        int i0 = t * int(T);
+        int ai = i0 + int(tx);
+        float a_val = 0.0f;
+        if (ai < m && rowN < n) { a_val = A[ai * n + rowN]; }
+        Atile[ty][tx] = a_val;
+
+        int bi = i0 + int(ty);
+        // Optionally vectorized load for B across contiguous cols (k). Group leader writes for 4-wide group.
+        const bool USE_V4 = $V4;
+        if (USE_V4) {
+            uint base_tx = tx & 0xFFFFFFFCu;
+            int col_base = block_x * int(T) + int(base_tx);
+            uint idxB_base = uint(bi) * uint(k) + uint(col_base);
+            bool in_tile = (base_tx + 3u) < T;
+            bool b_ok = (bi < m) && (col_base + 3 < k) && ((idxB_base & 3u) == 0u);
+            bool group_ok = in_tile && b_ok;
+            if (group_ok) {
+                if ((tx & 3u) == 0u) {
+                    const device float4* B4 = (const device float4*)(B);
+                    float4 b4 = B4[idxB_base >> 2];
+                    Btile[ty][base_tx + 0] = b4.x;
+                    Btile[ty][base_tx + 1] = b4.y;
+                    Btile[ty][base_tx + 2] = b4.z;
+                    Btile[ty][base_tx + 3] = b4.w;
+                }
+            } else {
+                float b_val = 0.0f; if (bi < m && colK < k) { b_val = B[bi * k + colK]; }
+                Btile[ty][tx] = b_val;
+            }
+        } else {
+            float b_val = 0.0f; if (bi < m && colK < k) { b_val = B[bi * k + colK]; }
+            Btile[ty][tx] = b_val;
+        }
+
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        for (uint p = 0; p < T; ++p) { acc = fma(Atile[ty][p], Btile[p][tx], acc); }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    if (rowN < n && colK < k) { Z[rowN * k + colK] = acc; }
+""")
+    return tpl.substitute(T=T, PAD=(1 if PAD else 0), V4=int(1 if V4 else 0))
+
+def _format_at_b_source_square_db(T: int, PAD: bool, V4: bool) -> str:
+    from string import Template
+    tpl = Template(r"""
+    // Threadgroup-tiled GEMM with double buffering: Z = A^T * B (square tiles)
+    // Shapes: A (m,n), B (m,k), Z (n,k), shape=[m,n,k]
+    const uint T = $T;
+
+    threadgroup float A0[T][T+$PAD];
+    threadgroup float A1[T][T+$PAD];
+    threadgroup float B0[T][T+$PAD];
+    threadgroup float B1[T][T+$PAD];
+
+    int m = int(shape[0]);
+    int n = int(shape[1]);
+    int k = int(shape[2]);
+
+    uint tx = thread_position_in_threadgroup.x;
+    uint ty = thread_position_in_threadgroup.y;
+
+    int block_x = int(threadgroup_position_in_grid.x);
+    int block_y = int(threadgroup_position_in_grid.y);
+    int colK = block_x * int(T) + int(tx);
+    int rowN = block_y * int(T) + int(ty);
+
+    float acc = 0.0f;
+    int itiles = (m + int(T) - 1) / int(T);
+    if (itiles == 0) { if (rowN < n && colK < k) { Z[rowN*k + colK] = 0.0f; } return; }
+
+    // Preload tile 0 into buffer 0
+    {
+        int i0 = 0;
+        int ai = i0 + int(tx);
+        float a_val = 0.0f; if (ai < m && rowN < n) { a_val = A[ai * n + rowN]; }
+        A0[ty][tx] = a_val;
+
+        int bi = i0 + int(ty);
+        const bool USE_V4 = $V4;
+        if (USE_V4) {
+            uint base_tx = tx & 0xFFFFFFFCu;
+            int col_base = block_x * int(T) + int(base_tx);
+            uint idxB_base = uint(bi) * uint(k) + uint(col_base);
+            bool in_tile = (base_tx + 3u) < T;
+            bool b_ok = (bi < m) && (col_base + 3 < k) && ((idxB_base & 3u) == 0u);
+            bool group_ok = in_tile && b_ok;
+            if (group_ok) {
+                if ((tx & 3u) == 0u) {
+                    const device float4* B4 = (const device float4*)(B);
+                    float4 b4 = B4[idxB_base >> 2];
+                    B0[ty][base_tx+0]=b4.x; B0[ty][base_tx+1]=b4.y; B0[ty][base_tx+2]=b4.z; B0[ty][base_tx+3]=b4.w;
+                }
+            } else {
+                float b_val = 0.0f; if (bi < m && colK < k) { b_val = B[bi * k + colK]; } B0[ty][tx] = b_val;
+            }
+        } else {
+            float b_val = 0.0f; if (bi < m && colK < k) { b_val = B[bi * k + colK]; } B0[ty][tx] = b_val;
+        }
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    for (int t = 0; t < itiles - 1; ++t) {
+        bool use0 = (t % 2) == 0;
+        if (use0) { for (uint p = 0; p < T; ++p) { acc = fma(A0[ty][p], B0[p][tx], acc); } }
+        else      { for (uint p = 0; p < T; ++p) { acc = fma(A1[ty][p], B1[p][tx], acc); } }
+
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        int i0 = (t + 1) * int(T);
+        int ai = i0 + int(tx);
+        int bi = i0 + int(ty);
+        if (use0) {
+            float a_val = 0.0f; if (ai < m && rowN < n) { a_val = A[ai * n + rowN]; } A1[ty][tx] = a_val;
+            const bool USE_V4_2 = $V4;
+            if (USE_V4_2) {
+                uint base_tx = tx & 0xFFFFFFFCu;
+                int col_base = block_x * int(T) + int(base_tx);
+                uint idxB_base = uint(bi) * uint(k) + uint(col_base);
+                bool in_tile = (base_tx + 3u) < T;
+                bool b_ok = (bi < m) && (col_base + 3 < k) && ((idxB_base & 3u) == 0u);
+                bool group_ok = in_tile && b_ok;
+            if (group_ok) {
+                if ((tx & 3u) == 0u) { const device float4* B4 = (const device float4*)(B); float4 b4 = B4[idxB_base >> 2]; B1[ty][base_tx+0]=b4.x; B1[ty][base_tx+1]=b4.y; B1[ty][base_tx+2]=b4.z; B1[ty][base_tx+3]=b4.w; }
+                } else { float b_val = 0.0f; if (bi < m && colK < k) { b_val = B[bi * k + colK]; } B1[ty][tx] = b_val; }
+            } else {
+                float b_val = 0.0f; if (bi < m && colK < k) { b_val = B[bi * k + colK]; } B1[ty][tx] = b_val;
+            }
+        } else {
+            float a_val = 0.0f; if (ai < m && rowN < n) { a_val = A[ai * n + rowN]; } A0[ty][tx] = a_val;
+            const bool USE_V4_2 = $V4;
+            if (USE_V4_2) {
+                uint base_tx = tx & 0xFFFFFFFCu;
+                int col_base = block_x * int(T) + int(base_tx);
+                uint idxB_base = uint(bi) * uint(k) + uint(col_base);
+                bool in_tile = (base_tx + 3u) < T;
+                bool b_ok = (bi < m) && (col_base + 3 < k) && ((idxB_base & 3u) == 0u);
+                bool group_ok = in_tile && b_ok;
+                if (group_ok) {
+                    if ((tx & 3u) == 0u) { const device float4* B4 = (const device float4*)(B); float4 b4 = B4[idxB_base >> 2]; B0[ty][base_tx+0]=b4.x; B0[ty][base_tx+1]=b4.y; B0[ty][base_tx+2]=b4.z; B0[ty][base_tx+3]=b4.w; }
+                } else { float b_val = 0.0f; if (bi < m && colK < k) { b_val = B[bi * k + colK]; } B0[ty][tx] = b_val; }
+            } else {
+                float b_val = 0.0f; if (bi < m && colK < k) { b_val = B[bi * k + colK]; } B0[ty][tx] = b_val;
+            }
+        }
+
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+
+    if ((itiles - 1) >= 0) {
+        bool use0 = ((itiles - 1) % 2) == 0;
+        if (use0) { for (uint p = 0; p < T; ++p) { acc = fma(A0[ty][p], B0[p][tx], acc); } }
+        else      { for (uint p = 0; p < T; ++p) { acc = fma(A1[ty][p], B1[p][tx], acc); } }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+
+    if (rowN < n && colK < k) { Z[rowN * k + colK] = acc; }
+""")
+    return tpl.substitute(T=T, PAD=(1 if PAD else 0), V4=int(1 if V4 else 0))
+
 _KERNEL_AV = None
 _KERNEL_AT_B = None
 _TILES_AV: Tuple[int, int] | None = None
@@ -283,13 +814,16 @@ def _build_av_kernel():
     global _TILES_AV
     if _TILES_AV is None:
         _TILES_AV = _select_tile_av()
-    TM, T = _TILES_AV
+    # Square tile size via env (default 16)
+    T = _square_T_default()
+    V4 = _use_v4()
+    DB = _use_db()
     return mx.fast.metal_kernel(
         name="gemm_av_tiled",
         input_names=["A", "V", "shape"],
         output_names=["C"],
         header=_HEADER,
-        source=_format_av_source(TM, T),
+        source=(_format_av_source_square_db(T, V4) if DB else _format_av_source_square_scalar(T, V4)),
         ensure_row_contiguous=True,
     )
 
@@ -308,13 +842,16 @@ def _build_at_b_kernel():
     global _TILES_ATB
     if _TILES_ATB is None:
         _TILES_ATB = _select_tile_atb()
-    TN, TI, TK = _TILES_ATB
+    T = _square_T_default()
+    PAD = _pad_atb()
+    V4 = _use_v4()
+    DB = _use_db()
     return mx.fast.metal_kernel(
         name="gemm_at_b_tiled",
         input_names=["A", "B", "shape"],
         output_names=["Z"],
         header=_HEADER,
-        source=_format_at_b_source(TN, TI, TK),
+        source=(_format_at_b_source_square_db(T, PAD, V4) if DB else _format_at_b_source_square(T, PAD, V4)),
         ensure_row_contiguous=True,
     )
 
@@ -351,6 +888,17 @@ def get_gemm_tiles() -> Tuple[Tuple[int, int], Tuple[int, int, int]]:
     return av, atb
 
 
+def reset_gemm_kernels() -> None:
+    """Reset cached GEMM kernels to rebuild with new env toggles.
+
+    Use this when changing flags like METALFAISS_GEMM_DB, METALFAISS_GEMM_V4,
+    METALFAISS_GEMM_PAD_ATB, or METALFAISS_GEMM_TILE_SQ between runs.
+    """
+    global _KERNEL_AV, _KERNEL_AT_B
+    _KERNEL_AV = None
+    _KERNEL_AT_B = None
+
+
 def gemm_av(A: mx.array, V: mx.array) -> mx.array:
     """Compute B = A @ V with a shared‑memory tiled Metal kernel.
 
@@ -381,13 +929,21 @@ def gemm_av(A: mx.array, V: mx.array) -> mx.array:
     k = int(V.shape[1])
     shape = mx.array([m, n, k], dtype=mx.uint32)
 
-    # Tile sizes (TM,T) -> threadgroup (T, TM, 1)
-    TM, T = _TILES_AV or _select_tile_av()
-    tiles_x = (k + T - 1) // T
-    tiles_y = (m + TM - 1) // TM
-    # MLX grid is threads, not groups
-    grid = (tiles_x * T, tiles_y * TM, 1)
-    threadgroup = (T, TM, 1)
+    # If experimenting with rectsafe, use grid in threads semantics
+    rect = os.environ.get("METALFAISS_GEMM_RECTSAFE", "0") == "1"
+    if rect:
+        TM, T = _TILES_AV or _select_tile_av()
+        tiles_x = (k + T - 1) // T
+        tiles_y = (m + TM - 1) // TM
+        grid = (tiles_x * T, tiles_y * TM, 1)
+        threadgroup = (T, TM, 1)
+    else:
+        # Square tiles: threadgroup=(T,T), grid launched in threads
+        T = _square_T_default()
+        tiles_x = (k + T - 1) // T
+        tiles_y = (m + T - 1) // T
+        grid = (tiles_x * T, tiles_y * T, 1)
+        threadgroup = (T, T, 1)
 
     (B,) = _KERNEL_AV(
         inputs=[A, V, shape],
@@ -428,19 +984,41 @@ def gemm_at_b(A: mx.array, B: mx.array) -> mx.array:
     k = int(B.shape[1])
     shape = mx.array([m, n, k], dtype=mx.uint32)
 
-    # Tile sizes (TN,TI,TK) -> threadgroup (TK, TN, 1)
-    TN, TI, TK = _TILES_ATB or _select_tile_atb()
-    tiles_x = (k + TK - 1) // TK
-    tiles_y = (n + TN - 1) // TN
-    # MLX grid is threads, not groups
-    grid = (tiles_x * TK, tiles_y * TN, 1)
-    threadgroup = (TK, TN, 1)
-
-    (Z,) = _KERNEL_AT_B(
-        inputs=[A, B, shape],
-        output_shapes=[(n, k)],
-        output_dtypes=[A.dtype],
-        grid=grid,
-        threadgroup=threadgroup,
-    )
+    rect = os.environ.get("METALFAISS_GEMM_RECTSAFE", "0") == "1"
+    if rect:
+        # Build rectsafe kernel dynamically for race-free loads
+        TN, TI, TK = _TILES_ATB or _select_tile_atb()
+        ker = mx.fast.metal_kernel(
+            name="gemm_at_b_rectsafe",
+            input_names=["A", "B", "shape"],
+            output_names=["Z"],
+            header=_HEADER,
+            source=_format_at_b_source_rectsafe(TN, TI, TK),
+            ensure_row_contiguous=True,
+        )
+        tiles_x = (k + TK - 1) // TK
+        tiles_y = (n + TN - 1) // TN
+        grid = (tiles_x * TK, tiles_y * TN, 1)
+        threadgroup = (TK, TN, 1)
+        (Z,) = ker(
+            inputs=[A, B, shape],
+            output_shapes=[(n, k)],
+            output_dtypes=[A.dtype],
+            grid=grid,
+            threadgroup=threadgroup,
+        )
+    else:
+        # Square tiles: threadgroup=(T,T), grid launched in threads
+        T = _square_T_default()
+        tiles_x = (k + T - 1) // T
+        tiles_y = (n + T - 1) // T
+        grid = (tiles_x * T, tiles_y * T, 1)
+        threadgroup = (T, T, 1)
+        (Z,) = _KERNEL_AT_B(
+            inputs=[A, B, shape],
+            output_shapes=[(n, k)],
+            output_dtypes=[A.dtype],
+            grid=grid,
+            threadgroup=threadgroup,
+        )
     return Z

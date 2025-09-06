@@ -133,40 +133,11 @@ def topk_svd(
 
     # Subspace iteration: repeatedly apply (A^T A) to V and re-orthonormalize
     for _ in range(max(1, iters)):
-        impl = None
-        if use_kernel or os.environ.get("METALFAISS_USE_SVD_KERNEL", "0") == "1":
-            impl = "KERNEL_TILED"
-        else:
-            impl = choose_svd_impl(m, n, k)
-
-        if impl == "KERNEL_TILED":
-            # Kernel path (optional banding + streams)
-            env_band = os.environ.get("METALFAISS_SVD_BAND")
-            bsz = band_size or (int(env_band) if env_band else None)
-            env_streams = os.environ.get("METALFAISS_SVD_STREAMS")
-            nstreams = int(env_streams) if env_streams else None
-            if bsz is not None and bsz > 0 and bsz < k:
-                Z = _kernel_zstep_banded(A, V, bsz, streams=nstreams)
-            else:
-                B = gemm_av(A, V)
-                Z = gemm_at_b(A, B)
-            Qz, _ = pure_mlx_qr(Z)
-            V = Qz[:, :k]
-        else:
-            if use_compile or os.environ.get("METALFAISS_USE_COMPILE", "0") == "1":
-                global _COMPILED_MLX_ITER
-                if _COMPILED_MLX_ITER is None:
-                    if hasattr(mx, "compile"):
-                        _COMPILED_MLX_ITER = mx.compile(_mlx_power_iter_once)
-                    else:
-                        _COMPILED_MLX_ITER = _mlx_power_iter_once
-                Qz = _COMPILED_MLX_ITER(A, V)
-                V = Qz[:, :k]
-            else:
-                AV = mx.matmul(A, V)         # (m, k)
-                Z = mx.matmul(mx.transpose(A), AV)  # (n, k)
-                Qz, _ = pure_mlx_qr(Z)
-                V = Qz[:, :k]
+        # Production: use tiled GEMM kernels for Z-step (AV then A^T B)
+        B = gemm_av(A, V)
+        Z = gemm_at_b(A, B)
+        Qz, _ = pure_mlx_qr(Z)
+        V = Qz[:, :k]
 
     # Ritz values/vectors: compute U = A V, then singular values as norms
     AV = mx.matmul(A, V)    # (m, k)

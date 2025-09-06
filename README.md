@@ -125,6 +125,15 @@ MLX (Machine Learning for Apple silicon) provides:
 
 See docs/mlx/Kernel-Guide.md for working `mx.fast.metal_kernel` patterns (body‑only + header), grid/threadgroup sizing, and autoswitching strategies. See docs/mlx/Orthogonality.md for non‑square orthonormalization.
 
+Fast GEMM (A@V and Aᵀ@B) quick start
+- Enable kernels: `METALFAISS_USE_GEMM_KERNEL=1`
+- Optional: `METALFAISS_GEMM_TILE_SQ=16 METALFAISS_GEMM_V4=1 METALFAISS_GEMM_PAD_ATB=1`
+- Rebuild after toggles change: `from metalfaiss.faissmlx.kernels import gemm_kernels as gk; gk.reset_gemm_kernels()`
+- Validate: `python -m python.metalfaiss.unittest.test_gemm_flags_correctness`
+- Bench: `python -m python.metalfaiss.unittest.test_kernel_autotune_bench`
+
+More: `docs/mlx/GEMM-Kernels.md`.
+
 Attribution: Some kernel patterns and HPC techniques are adapted from the Ember ML project by Sydney Bach (The Solace Project). We’ve encoded those real‑world lessons here so others can build reliable MLX+Metal kernels.
 
 ## Examples

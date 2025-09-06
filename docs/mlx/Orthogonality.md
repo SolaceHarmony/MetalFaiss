@@ -153,3 +153,4 @@ When to use
 - Random rotations for non‑square transforms:
   - If d_in ≥ d_out: take first d_out columns of a left‑orthonormal Q.
   - If d_out > d_in: build right‑orthonormal rows and transpose.
+ - Z‑step in block power iteration uses tiled GEMMs (A@V then Aᵀ@B). See `docs/mlx/GEMM-Kernels.md` for flags and tuning.
