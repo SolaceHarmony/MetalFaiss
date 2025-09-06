@@ -6,7 +6,6 @@ which form the foundation for all vector transforms in MetalFaiss.
 """
 
 import unittest
-import numpy as np
 import mlx.core as mx
 from ..vector_transform.base_vector_transform import (
     BaseVectorTransform,
@@ -47,9 +46,8 @@ class TestBaseVectorTransform(unittest.TestCase):
         self.d_out = 4
         self.transform = MockVectorTransform(self.d_in, self.d_out)
         
-        # Create random test vectors
-        np.random.seed(42)
-        self.test_vectors = np.random.randn(10, self.d_in).astype(np.float32)
+        # Create random test vectors (MLX)
+        self.test_vectors = mx.random.normal(shape=(10, self.d_in)).astype(mx.float32)
         
     def test_initialization(self):
         """Test transform initialization."""
@@ -76,8 +74,7 @@ class TestBaseVectorTransform(unittest.TestCase):
         
         # Now application should work
         result = self.transform.apply(self.test_vectors.tolist())
-        self.assertEqual(len(result), len(self.test_vectors))
-        self.assertEqual(len(result[0]), self.d_out)
+        self.assertEqual(result.shape, (self.test_vectors.shape[0], self.d_out))
         
     def test_reverse_transform(self):
         """Test reverse transform."""
@@ -113,9 +110,8 @@ class TestBaseLinearTransform(unittest.TestCase):
         self.d_out = 4
         self.transform = MockLinearTransform(self.d_in, self.d_out)
         
-        # Create random test vectors
-        np.random.seed(42)
-        self.test_vectors = np.random.randn(10, self.d_in).astype(np.float32)
+        # Create random test vectors (MLX)
+        self.test_vectors = mx.random.normal(shape=(10, self.d_in)).astype(mx.float32)
         
     def test_initialization(self):
         """Test transform initialization."""
@@ -133,19 +129,13 @@ class TestBaseLinearTransform(unittest.TestCase):
         """Test linear transformation."""
         # Identity transform should return input
         result = self.transform.apply(self.test_vectors.tolist())
-        np.testing.assert_array_almost_equal(
-            result[:, :self.d_out],
-            self.test_vectors[:, :self.d_out]
-        )
+        self.assertTrue(bool(mx.allclose(result[:, :self.d_out], self.test_vectors[:, :self.d_out], rtol=1e-6, atol=1e-6)))
         
         # With bias
         transform = MockLinearTransform(self.d_in, self.d_out, have_bias=True)
         transform.b = mx.ones(self.d_out)
         result = transform.apply(self.test_vectors.tolist())
-        np.testing.assert_array_almost_equal(
-            result,
-            self.test_vectors[:, :self.d_out] + 1
-        )
+        self.assertTrue(bool(mx.allclose(result, self.test_vectors[:, :self.d_out] + 1, rtol=1e-6, atol=1e-6)))
         
     def test_transform_transpose(self):
         """Test transpose transform."""
@@ -160,10 +150,7 @@ class TestBaseLinearTransform(unittest.TestCase):
         self.transform.transform_transpose(y, x_recovered)
         
         # For orthonormal matrix, should recover input
-        np.testing.assert_array_almost_equal(
-            x_recovered[:, :self.d_out],
-            x[:, :self.d_out]
-        )
+        self.assertTrue(bool(mx.allclose(x_recovered[:, :self.d_out], x[:, :self.d_out], rtol=1e-6, atol=1e-6)))
         
     def test_reverse_transform(self):
         """Test reverse transform."""
@@ -174,13 +161,8 @@ class TestBaseLinearTransform(unittest.TestCase):
             
         # Should work when orthonormal
         self.transform.is_orthonormal = True
-        result = self.transform.reverse_transform(
-            self.test_vectors[:, :self.d_out].tolist()
-        )
-        np.testing.assert_array_almost_equal(
-            result[:, :self.d_out],
-            self.test_vectors[:, :self.d_out]
-        )
+        result = self.transform.reverse_transform(self.test_vectors[:, :self.d_out].tolist())
+        self.assertTrue(bool(mx.allclose(result[:, :self.d_out], self.test_vectors[:, :self.d_out], rtol=1e-6, atol=1e-6)))
         
     def test_set_is_orthonormal(self):
         """Test orthonormality checking."""

@@ -5,6 +5,7 @@ random_rotation.py - Random rotation transform for MetalFaiss (MLX-only)
 import mlx.core as mx
 from typing import Optional
 from .base_vector_transform import BaseVectorTransform
+from ..faissmlx.qr import pure_mlx_qr
 
 class RandomRotationTransform(BaseVectorTransform):
     """Random rotation transform.
@@ -44,8 +45,9 @@ class RandomRotationTransform(BaseVectorTransform):
             A = mx.random.normal(shape=(self.d_in, self.d_out), key=kA).astype(mx.float32)
         else:
             A = mx.random.normal(shape=(self.d_in, self.d_out)).astype(mx.float32)
-        # QR decomposition (CPU stream per MLX docs)
-        Q, R = mx.linalg.qr(A, stream=mx.cpu)
+        # QR decomposition: prefer GPU-only kernel if available
+        # MLX-only QR (Modified Gram–Schmidt)
+        Q, R = pure_mlx_qr(A)
         Q = Q[:, : self.d_out]
         self.rotation_matrix = Q
         self._is_trained = True

@@ -10,7 +10,7 @@ A pure Python implementation of FAISS (Facebook AI Similarity Search) optimized 
 
 - **Pure Python Implementation**: No C++ dependencies, easy to install and modify
 - **Metal Acceleration**: Optimized for Apple Silicon using MLX framework
-- **NumPy Fallback**: Works on all platforms with automatic fallback to NumPy
+- MLX-only: Requires MLX on Apple Silicon (Metal). No fallbacks.
 - **FAISS Compatible**: Similar API to original FAISS library
 - **Lazy Evaluation**: Efficient computation graphs with MLX
 
@@ -19,8 +19,7 @@ A pure Python implementation of FAISS (Facebook AI Similarity Search) optimized 
 ### Requirements
 
 - Python 3.8+
-- NumPy (required)
-- MLX (optional, for Metal acceleration on Apple Silicon)
+- MLX (required)
 
 ### Install from Source
 
@@ -122,17 +121,11 @@ MLX (Machine Learning for Apple silicon) provides:
 - **Unified Memory**: Efficient memory management between CPU/GPU
 - **Apple Silicon Optimization**: Native performance on M1/M2/M3 chips
 
-### Lazy Evaluation Benefits
+### Lazy Evaluation + Kernels
 
-```python
-# Operations are recorded, not immediately executed
-vectors = metalfaiss.create_matrix(1000, 128)
-query = metalfaiss.normalize_data(vectors[:10])
+See docs/mlx/Kernel-Guide.md for working `mx.fast.metal_kernel` patterns (body‑only + header), grid/threadgroup sizing, and autoswitching strategies. See docs/mlx/Orthogonality.md for non‑square orthonormalization.
 
-# Computation happens only when result is needed
-result = index.search(query, k=5)  # <- Evaluation occurs here
-print(result.distances)  # <- Results available
-```
+Attribution: Some kernel patterns and HPC techniques are adapted from the Ember ML project by Sydney Bach (The Solace Project). We’ve encoded those real‑world lessons here so others can build reliable MLX+Metal kernels.
 
 ## Examples
 
@@ -194,17 +187,17 @@ Contributions are welcome! Please feel free to submit pull requests or open issu
 - **🎯 Clustering**: K-means and other clustering algorithms
 - **⚡ Lazy Evaluation**: Efficient computation graphs with MLX's lazy evaluation
 - **🐍 Pure Python**: No C++ compilation, easy installation and deployment
-- **🔧 NumPy Fallback**: Works on systems without Metal support
+  
 
 ## 🚀 Quick Start
 
 ```python
+import mlx.core as mx
 import metalfaiss
-import numpy as np  # MLX preferred, but NumPy works as fallback
 
 # Create some sample data (1000 vectors, 128 dimensions)
-data = np.random.normal(size=(1000, 128)).astype(np.float32)
-query = np.random.normal(size=(5, 128)).astype(np.float32)
+data = mx.random.normal(shape=(1000, 128)).astype(mx.float32)
+query = mx.random.normal(shape=(5, 128)).astype(mx.float32)
 
 # Create and populate index
 index = metalfaiss.FlatIndex(d=128, metric_type=metalfaiss.MetricType.L2)
@@ -212,7 +205,7 @@ index.add(data)
 
 # Search for 10 nearest neighbors
 result = index.search(query, k=10)
-print(f"Found {len(result.labels)} nearest neighbors")
+print(f"Found {result.labels.shape[0]} nearest neighbors")
 print(f"Distances: {result.distances.shape}, Labels: {result.labels.shape}")
 ```
 

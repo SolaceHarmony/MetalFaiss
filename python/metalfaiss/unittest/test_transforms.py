@@ -3,7 +3,6 @@ test_transforms.py - Tests for vector transforms
 """
 
 import unittest
-import numpy as np
 import mlx.core as mx
 from typing import List, Optional, Tuple
 
@@ -25,8 +24,8 @@ class TestTransforms(unittest.TestCase):
         """Set up test data."""
         self.d = 64
         self.n = 100
-        np.random.seed(42)
-        self.x = mx.array(np.random.randn(self.n, self.d).astype('float32'))
+        # MLX-only random input
+        self.x = mx.random.normal(shape=(self.n, self.d)).astype(mx.float32)
         
     def test_random_rotation(self):
         """Test random rotation transform."""
@@ -42,9 +41,9 @@ class TestTransforms(unittest.TestCase):
         self.assertEqual(transform.rotation_matrix.shape, (self.d, self.d))
         
         # Test orthogonality
-        R = transform.rotation_matrix.numpy()
-        RtR = R.T @ R
-        np.testing.assert_array_almost_equal(RtR, np.eye(self.d), decimal=5)
+        R = transform.rotation_matrix
+        RtR = mx.matmul(mx.transpose(R), R)
+        self.assertTrue(bool(mx.allclose(RtR, mx.eye(self.d), rtol=1e-5, atol=1e-5)))
         
         # Test forward transform
         y = transform.apply(self.x)
@@ -52,7 +51,7 @@ class TestTransforms(unittest.TestCase):
         
         # Test inverse transform
         x_rec = transform.reverse_transform(y)
-        np.testing.assert_array_almost_equal(x_rec, self.x, decimal=5)
+        self.assertTrue(bool(mx.allclose(x_rec, self.x, rtol=1e-5, atol=1e-5)))
         
     def test_pca_matrix(self):
         """Test PCA matrix transform."""
@@ -68,9 +67,9 @@ class TestTransforms(unittest.TestCase):
         self.assertEqual(transform.pca_matrix.shape, (self.d, self.d))
         
         # Test orthogonality
-        P = transform.pca_matrix.numpy()
-        PtP = P.T @ P
-        np.testing.assert_array_almost_equal(PtP, np.eye(self.d), decimal=5)
+        P = transform.pca_matrix
+        PtP = mx.matmul(mx.transpose(P), P)
+        self.assertTrue(bool(mx.allclose(PtP, mx.eye(self.d), rtol=1e-5, atol=1e-5)))
         
         # Test forward transform
         y = transform.apply(self.x)
@@ -78,7 +77,7 @@ class TestTransforms(unittest.TestCase):
         
         # Test inverse transform
         x_rec = transform.reverse_transform(y)
-        np.testing.assert_array_almost_equal(x_rec, self.x, decimal=5)
+        self.assertTrue(bool(mx.allclose(x_rec, self.x, rtol=1e-5, atol=1e-5)))
         
     def test_itq(self):
         """Test ITQ transform."""
@@ -94,9 +93,9 @@ class TestTransforms(unittest.TestCase):
         self.assertEqual(transform.rotation_matrix.shape, (self.d, self.d))
         
         # Test orthogonality
-        R = transform.rotation_matrix.numpy()
-        RtR = R.T @ R
-        np.testing.assert_array_almost_equal(RtR, np.eye(self.d), decimal=5)
+        R = transform.rotation_matrix
+        RtR = mx.matmul(mx.transpose(R), R)
+        self.assertTrue(bool(mx.allclose(RtR, mx.eye(self.d), rtol=1e-5, atol=1e-5)))
         
         # Test forward transform
         y = transform.apply(self.x)
@@ -104,7 +103,7 @@ class TestTransforms(unittest.TestCase):
         
         # Test inverse transform
         x_rec = transform.reverse_transform(y)
-        np.testing.assert_array_almost_equal(x_rec, self.x, decimal=5)
+        self.assertTrue(bool(mx.allclose(x_rec, self.x, rtol=1e-5, atol=1e-5)))
         
     def test_opq(self):
         """Test OPQ transform."""
@@ -122,9 +121,9 @@ class TestTransforms(unittest.TestCase):
         self.assertEqual(transform.rotation_matrix.shape, (self.d, self.d))
         
         # Test orthogonality
-        R = transform.rotation_matrix.numpy()
-        RtR = R.T @ R
-        np.testing.assert_array_almost_equal(RtR, np.eye(self.d), decimal=5)
+        R = transform.rotation_matrix
+        RtR = mx.matmul(mx.transpose(R), R)
+        self.assertTrue(bool(mx.allclose(RtR, mx.eye(self.d), rtol=1e-5, atol=1e-5)))
         
         # Test forward transform
         y = transform.apply(self.x)
@@ -132,7 +131,7 @@ class TestTransforms(unittest.TestCase):
         
         # Test inverse transform
         x_rec = transform.reverse_transform(y)
-        np.testing.assert_array_almost_equal(x_rec, self.x, decimal=5)
+        self.assertTrue(bool(mx.allclose(x_rec, self.x, rtol=1e-5, atol=1e-5)))
         
     def test_simple_transforms(self):
         """Test simple transforms."""
@@ -141,20 +140,20 @@ class TestTransforms(unittest.TestCase):
         transform = RemapDimensionsTransform(self.d, indices)
         y = transform.apply(self.x)
         self.assertEqual(y.shape, (self.n, len(indices)))
-        np.testing.assert_array_equal(y, self.x[:, indices])
+        self.assertTrue(bool(mx.all(mx.equal(y, self.x[:, indices]))))
         
         # Test normalization
         transform = NormalizationTransform(self.d)
         y = transform.apply(self.x)
         norms = mx.sqrt(mx.sum(y * y, axis=1))
-        np.testing.assert_array_almost_equal(norms, mx.ones_like(norms))
+        self.assertTrue(bool(mx.allclose(norms, mx.ones_like(norms), rtol=1e-6, atol=1e-6)))
         
         # Test centering
         transform = CenteringTransform(self.d)
         transform.train(self.x)
         y = transform.apply(self.x)
         means = mx.mean(y, axis=0)
-        np.testing.assert_array_almost_equal(means, mx.zeros_like(means))
+        self.assertTrue(bool(mx.allclose(means, mx.zeros_like(means), rtol=1e-6, atol=1e-6)))
         
     def test_dimension_error(self):
         """Test error with wrong dimensions."""
@@ -162,12 +161,12 @@ class TestTransforms(unittest.TestCase):
         transform.train(self.x)
         
         # Wrong input dimension
-        x_wrong = mx.array(np.random.randn(10, self.d + 1))
+        x_wrong = mx.random.normal(shape=(10, self.d + 1)).astype(mx.float32)
         with self.assertRaises(ValueError):
             transform.apply(x_wrong)
             
         # Wrong output dimension
-        y_wrong = mx.array(np.random.randn(10, self.d + 1))
+        y_wrong = mx.random.normal(shape=(10, self.d + 1)).astype(mx.float32)
         with self.assertRaises(ValueError):
             transform.reverse_transform(y_wrong)
 
