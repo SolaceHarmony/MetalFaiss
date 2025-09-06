@@ -149,5 +149,6 @@ References
 
 - This repo: Kernel-Guide.md, Metal-Primer.md, and working kernels in `python/metalfaiss/faissmlx/kernels/`.
 - Spot tests: `docs/mlx/Spot-Tests.md` — hands-on microbenchmarks to validate patterns in your environment.
+- Fast patterns: `docs/mlx/Fastest-Patterns.md` — plain‑speech playbook with the winning patterns (fused scan+select, warp‑reductions, batching, static tuning, streams, and more).
 - Ember ML backend (QR/Cholesky/SVD kernels) for examples of reductions, threading, and safety checks.
 - Hardware-aware tiling: Kernels query `mlx.core.metal.device_info()` and accept env overrides (`METALFAISS_GEMM_TILE_*`). Benchmark tile shapes (16×16, 32×8, 8×32) per device.
