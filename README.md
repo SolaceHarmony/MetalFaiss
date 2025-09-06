@@ -111,6 +111,28 @@ MetalFaiss provides excellent performance characteristics:
 - **Memory Efficient**: Optimized memory usage patterns
 - **Parallel Processing**: Automatic parallelization on supported hardware
 
+## Benchmarks
+
+Micro-benchmarks on Apple Silicon (MLX, float32). Numbers are median wall-clock and vary by device and shape; treat as indicative.
+
+- GEMM Z-step (Aᵀ(A·V)) kernel sweep (examples):
+  - shape=(256×128, k=16): best ~0.3 ms with T=16–32, DB off/on depending on flags
+  - shape=(512×256, k=32): best ~0.3 ms with T=16 and DB/V4 tuned
+  - Enable via `METALFAISS_USE_GEMM_KERNEL=1`; tune `METALFAISS_GEMM_TILE_SQ`, `METALFAISS_GEMM_DB`, `METALFAISS_GEMM_V4`, `METALFAISS_GEMM_PAD_ATB`
+
+- IVFFlat query (d=64, N=32k, nlist=128, Q=16)
+  - nprobe=1, k=10: Baseline MLX 14.3 ms → fused + device merge 13.7 ms
+  - nprobe=8, k=10: Baseline MLX 126.6 ms → fused + device merge 140.7 ms (similar); batched path 7.6 ms (same-X micro)
+  - nprobe=1, k=32: Baseline 19.8 ms → fused + device merge 19.9 ms (similar)
+  - nprobe=8, k=32: Baseline 136.5 ms → fused + device merge 171.5 ms (similar); batched path 8.3 ms (same-X micro)
+
+Run locally
+- GEMM sweep: `METALFAISS_USE_GEMM_KERNEL=1 python -m python.metalfaiss.unittest.test_kernel_autotune_bench`
+- IVF perf: `METALFAISS_USE_IVF_TOPK=1 python -m python.metalfaiss.unittest.test_ivf_benchmarks`
+- PyTorch vs MLX (GEMM): `METALFAISS_USE_GEMM_KERNEL=1 python -m python.metalfaiss.unittest.test_torch_vs_mlx_bench`
+
+Details on GEMM flags and tuning in `docs/mlx/GEMM-Kernels.md`.
+
 ## MLX Integration
 
 ### Why MLX?
