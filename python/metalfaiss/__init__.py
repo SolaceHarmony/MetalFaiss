@@ -36,7 +36,8 @@ from .indexflat import FlatIndex
 from .vector_transform import BaseVectorTransform
 
 # Utilities
-from .Utils import load_data, encode_sentences, create_matrix, normalize_data
+# Demo utilities (helpers for examples)
+from .demo_utils import load_data, encode_sentences, create_matrix, normalize_data
 
 # Distance functions
 from .distances import pairwise_L2sqr

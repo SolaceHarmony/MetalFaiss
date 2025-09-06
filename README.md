@@ -71,8 +71,8 @@ Run the included examples:
 
 ```bash
 cd python
-python example_usage.py
-python advanced_examples.py
+python basic_usage.py
+python advanced_usage.py
 ```
 
 ### Supported Distance Metrics
@@ -175,8 +175,8 @@ Attribution: Some kernel patterns and HPC techniques are adapted from the Ember 
 
 See the `python/` directory for complete examples:
 
-- `example_usage.py`: Basic usage patterns
-- `advanced_examples.py`: Complex scenarios and optimizations
+- `basic_usage.py`: Basic usage patterns
+- `advanced_usage.py`: Complex scenarios and optimizations
 
 ## API Reference
 
@@ -272,7 +272,8 @@ MetalFaiss/
 │   │   ├── indexflat.py  # Flat index implementation  
 │   │   ├── metric_type.py # Distance metrics
 │   │   └── ...
-│   ├── example_usage.py   # Usage examples
+│   ├── basic_usage.py     # Basic usage example
+│   ├── advanced_usage.py  # Advanced scenarios and optimizations
 │   └── setup.py          # Package setup
 └── README.md             # This file
 ```

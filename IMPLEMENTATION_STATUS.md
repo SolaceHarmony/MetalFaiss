@@ -11,7 +11,7 @@ The Python implementation is **fully functional** and ready for use:
 - ✅ **Vector Operations**: Add vectors, k-NN search, range search, reconstruction
 - ✅ **MLX Integration**: Full MLX support with NumPy fallback for compatibility
 - ✅ **Tests**: Unit tests passing (3/3 in `test_distances.py`)
-- ✅ **Examples**: Comprehensive working example in `example_usage.py`
+- ✅ **Examples**: Comprehensive working example in `basic_usage.py`
 
 ### Supported Operations:
 ```python

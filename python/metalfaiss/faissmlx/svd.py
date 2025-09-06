@@ -8,7 +8,7 @@ Overview
   MLX streams.
 
 Tuning & Controls
-- `use_kernel`: force the kernel path (else autoswitch by size/device via `dispatch.choose_svd_impl`).
+- `use_kernel`: force the kernel path (else autoswitch by size/device via `svd_dispatch.choose_svd_impl`).
 - `use_compile`: try `mx.compile` wrapper for the MLX iteration step when available.
 - Env vars:
   - `METALFAISS_USE_SVD_KERNEL=1` forces kernel path.
@@ -24,7 +24,7 @@ References
 from typing import Tuple
 import mlx.core as mx
 from .qr import pure_mlx_qr
-from .dispatch import choose_svd_impl
+from .svd_dispatch import choose_svd_impl
 from .kernels.gemm_kernels import gemm_av, gemm_at_b
 import os
 
