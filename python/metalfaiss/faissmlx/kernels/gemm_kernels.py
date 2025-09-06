@@ -13,12 +13,10 @@ Design
 - 2D tiling with threadgroup shared memory enables coalesced loads and high
   arithmetic intensity; barriers synchronize phases.
 
-Tile selection (hardware-aware)
-- Tile sizes are chosen at import using `mlx.core.metal.device_info()` and can
-  be overridden via env:
-  - `METALFAISS_GEMM_TILE_AV="TMxT"` (e.g., `32x8`) – TN and TK are set to T.
-  - `METALFAISS_GEMM_TILE_ATB="TNxTK"` (e.g., `8x32`).
-  - Defaults: M3 → AV(32×8), AT_B(8×32); otherwise AV(16×16), AT_B(16×16).
+Tile selection
+- Square kernels use `METALFAISS_GEMM_TILE_SQ` (default 16).
+- Non-square cooperative tile envs (`METALFAISS_GEMM_TILE_AV`, `METALFAISS_GEMM_TILE_ATB`)
+  are only used by the experimental rectsafe AT_B path.
 
 Optimization Notes
 - Coalesced loads: tiles are staged into `threadgroup` arrays and reused across
@@ -163,144 +161,7 @@ def _use_v4() -> bool:
 def _pad_atb() -> bool:
     return os.environ.get("METALFAISS_GEMM_PAD_ATB", "0") == "1"
 
-def _format_av_source(TM: int, T: int) -> str:
-    """Return the AV kernel body with chosen tile sizes.
-
-    Note: TN and TK are both set to T to keep local_x consistent for tile loads.
-    """
-    from string import Template
-    tpl = Template(r"""
-    // Threadgroup-tiled GEMM: C = A * B, here C=B, A=A, B=V
-    // Shapes via shape buffer: [m, n, k]
-    const uint TM = $TM; // tile size along m (rows of A / rows of C)
-    const uint TN = $T;  // tile size along n (shared dimension)
-    const uint TK = $T;  // tile size along k (cols of V / cols of C)
-
-    threadgroup float Asub[TM][TN];
-    threadgroup float Vsub[TN][TK];
-
-    int m = int(shape[0]);
-    int n = int(shape[1]);
-    int k = int(shape[2]);
-
-    uint local_x = thread_position_in_threadgroup.x; // 0..TK-1 -> col in tile
-    uint local_y = thread_position_in_threadgroup.y; // 0..TM-1 -> row in tile
-
-    int block_x = int(threadgroup_position_in_grid.x); // tile col index
-    int block_y = int(threadgroup_position_in_grid.y); // tile row index
-
-    int row = block_y * int(TM) + int(local_y); // output row in [0,m)
-    int col = block_x * int(TK) + int(local_x); // output col in [0,k)
-
-    float acc = 0.0f;
-
-    // Iterate over tiles of the shared dimension n
-    int ntiles = (n + int(TN) - 1) / int(TN);
-    for (int t = 0; t < ntiles; ++t) {
-        // Global col in A / row in V tile
-        int a_col = t * int(TN) + int(local_x);
-        int v_row = t * int(TN) + int(local_y);
-
-        // Load Asub[rowTile, p] and Vsub[p, colTile]
-        float a_val = 0.0f;
-        if (row < m && a_col < n) {
-            a_val = A[row * n + a_col];
-        }
-        Asub[local_y][local_x] = a_val;
-
-        float v_val = 0.0f;
-        if (v_row < n && col < k) {
-            v_val = V[v_row * k + col];
-        }
-        Vsub[local_y][local_x] = v_val;
-
-        // Barrier required: tile data is shared across multiple SIMD groups
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-
-        // Accumulate over TN
-        for (uint p = 0; p < TN; ++p) {
-            acc = fma(Asub[local_y][p], Vsub[p][local_x], acc);
-        }
-
-        // Barrier required before loading the next tile iteration
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-    }
-
-    if (row < m && col < k) {
-        C[row * k + col] = acc;
-    }
-""")
-    return tpl.substitute(TM=TM, T=T)
-
-def _format_at_b_source(TN: int, TI: int, TK: int) -> str:
-    from string import Template
-    tpl = Template(r"""
-    // Threadgroup-tiled GEMM for Z = A^T * B
-    // Shapes: A (m,n), B (m,k), Z (n,k), shape=[m,n,k]
-    const uint TN = $TN; // tile size along n (rows of Z)
-    const uint TI = $TI; // tile size along m (shared dimension)
-    const uint TK = $TK; // tile size along k (cols of Z)
-
-    threadgroup float Atile[TI][TN]; // A^T tile: [i in m][n in n]
-    threadgroup float Btile[TI][TK];
-
-    int m = int(shape[0]);
-    int n = int(shape[1]);
-    int k = int(shape[2]);
-
-    uint local_x = thread_position_in_threadgroup.x; // 0..TK-1 -> col in tile
-    uint local_y = thread_position_in_threadgroup.y; // 0..TN-1 -> row in tile
-
-    int block_x = int(threadgroup_position_in_grid.x); // tile col index in k
-    int block_y = int(threadgroup_position_in_grid.y); // tile row index in n
-
-    int rowN = block_y * int(TN) + int(local_y); // output row in n
-    int colK = block_x * int(TK) + int(local_x); // output col in k
-
-    float acc = 0.0f;
-
-    int itiles = (m + int(TI) - 1) / int(TI); // walk shared dimension m
-    for (int t = 0; t < itiles; ++t) {
-        int i0 = t * int(TI);
-
-        // Load Atile rows r assigned to threads striding by TN on local_y
-        for (uint r = local_y; r < TI; r += TN) {
-            int i = i0 + int(r);
-            float a_val = 0.0f;
-            if (i < m && rowN < n) {
-                // A^T[rowN, i] = A[i, rowN]
-                a_val = A[i * n + rowN];
-            }
-            Atile[r][local_y] = a_val; // Atile[TI][TN]
-        }
-
-        // Load Btile rows r assigned to threads striding by TK on local_x
-        for (uint r = local_x; r < TI; r += TK) {
-            int i = i0 + int(r);
-            float b_val = 0.0f;
-            if (i < m && colK < k) {
-                b_val = B[i * k + colK];
-            }
-            Btile[r][local_x] = b_val; // Btile[TI][TK]
-        }
-
-        // Barrier required: tiles are consumed by multiple SIMD groups
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-
-        // Accumulate over TI
-        for (uint p = 0; p < TI; ++p) {
-            acc = fma(Atile[p][local_y], Btile[p][local_x], acc);
-        }
-
-        // Barrier before next iteration's loads
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-    }
-
-    if (rowN < n && colK < k) {
-        Z[rowN * k + colK] = acc;
-    }
-""")
-    return tpl.substitute(TN=TN, TI=TI, TK=TK)
+# Removed legacy rectangular AV/AT_B formatters; square kernels are the production path.
 
 def _format_at_b_source_rectsafe(TN: int, TI: int, TK: int) -> str:
     """Race-free loads for AT_B using unique writers per tile element.
@@ -807,7 +668,8 @@ def _build_av_kernel():
     Implementation details
     - Inputs: `A (m,n)`, `V (n,k)`, `shape=[m,n,k]` (uint32)
     - Output: `C (m,k)`
-    - Launch: 2D grid of (k/T, m/TM) with `threadgroup=(T, TM, 1)`
+    - Launch: grid launched in threads: `grid=(tiles_x*T, tiles_y*T, 1)`,
+      `threadgroup=(T, T, 1)`
     - Uses threadgroup memory tiles and explicit `threadgroup_barrier` between
       load/accumulate phases.
     """
@@ -834,7 +696,8 @@ def _build_at_b_kernel():
     Implementation details
     - Inputs: `A (m,n)`, `B (m,k)`, `shape=[m,n,k]`
     - Output: `Z (n,k)`
-    - Launch: 2D grid of (k/TK, n/TN) with `threadgroup=(TK, TN, 1)`
+    - Launch: grid launched in threads: `grid=(tiles_x*T, tiles_y*T, 1)`,
+      `threadgroup=(T, T, 1)`
     - Uses threadgroup memory tiles of Aᵀ and B along the shared m-dimension;
       explicit `threadgroup_barrier` between load/accumulate phases; `fma` in
       the inner loop.
@@ -929,21 +792,12 @@ def gemm_av(A: mx.array, V: mx.array) -> mx.array:
     k = int(V.shape[1])
     shape = mx.array([m, n, k], dtype=mx.uint32)
 
-    # If experimenting with rectsafe, use grid in threads semantics
-    rect = os.environ.get("METALFAISS_GEMM_RECTSAFE", "0") == "1"
-    if rect:
-        TM, T = _TILES_AV or _select_tile_av()
-        tiles_x = (k + T - 1) // T
-        tiles_y = (m + TM - 1) // TM
-        grid = (tiles_x * T, tiles_y * TM, 1)
-        threadgroup = (T, TM, 1)
-    else:
-        # Square tiles: threadgroup=(T,T), grid launched in threads
-        T = _square_T_default()
-        tiles_x = (k + T - 1) // T
-        tiles_y = (m + T - 1) // T
-        grid = (tiles_x * T, tiles_y * T, 1)
-        threadgroup = (T, T, 1)
+    # Square tiles: threadgroup=(T,T), grid launched in threads
+    T = _square_T_default()
+    tiles_x = (k + T - 1) // T
+    tiles_y = (m + T - 1) // T
+    grid = (tiles_x * T, tiles_y * T, 1)
+    threadgroup = (T, T, 1)
 
     (B,) = _KERNEL_AV(
         inputs=[A, V, shape],
