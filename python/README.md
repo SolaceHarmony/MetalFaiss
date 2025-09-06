@@ -89,5 +89,4 @@ MetalFaiss is licensed under the MIT License. See the LICENSE file for more deta
 
 - MetalFaiss is inspired by FAISS (Facebook AI Similarity Search) and reinterprets its core ideas using MLX.
 
-- SwiftFaiss by Jan Krukowski (jkrukowski/SwiftFaiss) for the swift codebase mine was inspired by and borrowed from in places.
-
+Some design patterns were inspired by prior Swift work on FAISS; this repository contains only the Python + MLX implementation.
