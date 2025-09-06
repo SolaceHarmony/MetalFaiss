@@ -63,6 +63,12 @@ When changing flags between runs, call `reset_gemm_kernels()` to rebuild variant
 - Rebuild after toggle changes
   - `from metalfaiss.faissmlx.kernels import gemm_kernels as gk; gk.reset_gemm_kernels()`
 
+### JSON Config (checked-in defaults)
+
+- File: `python/metalfaiss/faissmlx/config/gemm_kernels.json`
+- Keys: `use_gemm_kernel`, `square_T`, `double_buffer`, `vectorized_loads`, `pad_atb`, `rectsafe`, `tile_av`, `tile_atb`
+- Env still overrides JSON; to use a custom file, set `METALFAISS_GEMM_CONFIG_JSON=/path/to/gemm_kernels.json`.
+
 ## Validation
 
 - Correctness quick check
