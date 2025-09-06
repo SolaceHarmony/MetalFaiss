@@ -225,6 +225,17 @@ Entries follow a simple structure: Context → Method → Results → Analysis �
   - Support multi‑TG first pass (long lists) and device‑side two‑pass reduction.
   - Group queries by probed lists to batch real workloads; schedule batches per group on streams.
 
+---
+
+## 2025-09-06 — Checkpoint before pruning alternates
+
+- State:
+  - Flags added to gate experimental kernels; defaults conservative (prod uses stable paths).
+  - IVF fused kernels (single, batched, chunk+device merge) are correct and benchmarked.
+  - QR warp‑reduction projection is correct and faster on tall matrices.
+- Next:
+  - Prune non-winning alternates from production (keep winners); move others to research paths/tests.
+
 - Analysis:
   - For small k and moderate m,n, banding reduces peak working set and improves cache locality, yielding clear gains.
   - For larger tiles, mono tiled kernel remains competitive; banding can add overhead. Autoswitch should gate banding by shape.

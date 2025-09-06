@@ -160,8 +160,8 @@ def _format_av_source(TM: int, T: int) -> str:
     int ntiles = (n + int(TN) - 1) / int(TN);
     for (int t = 0; t < ntiles; ++t) {
         // Global col in A / row in V tile
-        int a_col = t * int(TN) + int(local_x); // reuse local_x for Asub column load
-        int v_row = t * int(TN) + int(local_y); // reuse local_y for Vsub row load
+        int a_col = t * int(TN) + int(local_x);
+        int v_row = t * int(TN) + int(local_y);
 
         // Load Asub[rowTile, p] and Vsub[p, colTile]
         float a_val = 0.0f;
@@ -364,6 +364,9 @@ def gemm_av(A: mx.array, V: mx.array) -> mx.array:
     - docs/mlx/Kernel-Guide.md:120
     - docs/metal/Shader-Optimization-Tips.md:148
     """
+    use_kernel = os.environ.get("METALFAISS_USE_GEMM_KERNEL", "0") == "1"
+    if not use_kernel:
+        return mx.matmul(A, V)
     global _KERNEL_AV
     if _KERNEL_AV is None:
         _KERNEL_AV = _build_av_kernel()
@@ -407,6 +410,9 @@ def gemm_at_b(A: mx.array, B: mx.array) -> mx.array:
     - docs/mlx/Kernel-Guide.md:120
     - docs/metal/Shader-Optimization-Tips.md:187
     """
+    use_kernel = os.environ.get("METALFAISS_USE_GEMM_KERNEL", "0") == "1"
+    if not use_kernel:
+        return mx.matmul(mx.transpose(A), B)
     global _KERNEL_AT_B
     if _KERNEL_AT_B is None:
         _KERNEL_AT_B = _build_at_b_kernel()
