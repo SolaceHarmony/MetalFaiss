@@ -113,18 +113,31 @@ MetalFaiss provides excellent performance characteristics:
 
 ## Benchmarks
 
-Micro-benchmarks on Apple Silicon (MLX, float32). Numbers are median wall-clock and vary by device and shape; treat as indicative.
+Micro-benchmarks on Apple Silicon (MLX, float32). Numbers are median wall-clock and vary by device/driver; treat as indicative. Reproduce with the commands below.
 
-- GEMM Z-step (Aᵀ(A·V)) kernel sweep (examples):
-  - shape=(256×128, k=16): best ~0.3 ms with T=16–32, DB off/on depending on flags
-  - shape=(512×256, k=32): best ~0.3 ms with T=16 and DB/V4 tuned
-  - Enable via `METALFAISS_USE_GEMM_KERNEL=1`; tune `METALFAISS_GEMM_TILE_SQ`, `METALFAISS_GEMM_DB`, `METALFAISS_GEMM_V4`, `METALFAISS_GEMM_PAD_ATB`
+GEMM (A@V)
 
-- IVFFlat query (d=64, N=32k, nlist=128, Q=16)
-  - nprobe=1, k=10: Baseline MLX 14.3 ms → fused + device merge 13.7 ms
-  - nprobe=8, k=10: Baseline MLX 126.6 ms → fused + device merge 140.7 ms (similar); batched path 7.6 ms (same-X micro)
-  - nprobe=1, k=32: Baseline 19.8 ms → fused + device merge 19.9 ms (similar)
-  - nprobe=8, k=32: Baseline 136.5 ms → fused + device merge 171.5 ms (similar); batched path 8.3 ms (same-X micro)
+| Shape (m×n, k) | MLX matmul | MLX kernels | Torch (MPS) |
+| --- | ---: | ---: | ---: |
+| 256×128, 16 | ~0.2 ms | ~0.2 ms | ~0.2 ms |
+| 512×256, 32 | ~0.2 ms | ~0.2 ms | ~0.2 ms |
+| 1024×512, 64 | ~0.2 ms | ~0.2 ms | ~0.2 ms |
+
+Z‑step Aᵀ(A·V)
+
+| Shape (m×n, k) | MLX (mx.matmul) | MLX (kernels) | Torch (MPS) |
+| --- | ---: | ---: | ---: |
+| 256×128, 16 | ~0.2 ms | ~0.3 ms | ~0.3 ms |
+| 512×256, 32 | ~0.2 ms | ~0.3 ms | ~0.3 ms |
+
+IVFFlat query (d=64, N=32k, nlist=128, Q=16)
+
+| nprobe | k | Baseline MLX | Fused + device merge | Fused batched (same X) |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 10 | 14.3 ms | 13.7 ms | 0.9 ms |
+| 8 | 10 | 126.6 ms | 140.7 ms | 7.6 ms |
+| 1 | 32 | 19.8 ms | 19.9 ms | 1.1 ms |
+| 8 | 32 | 136.5 ms | 171.5 ms | 8.3 ms |
 
 Run locally
 - GEMM sweep: `METALFAISS_USE_GEMM_KERNEL=1 python -m python.metalfaiss.unittest.test_kernel_autotune_bench`
@@ -186,7 +199,7 @@ Licensed under the Apache License, Version 2.0. See [LICENSE.md](LICENSE.md) for
 
 ## Attribution
 
-This implementation was created by Sydney Bach for The Solace Project, with the original Swift implementation by [Jan Krukowski](https://github.com/jkrukowski/SwiftFaiss) used as a reference for the Python translation.
+This implementation was created by Sydney Bach for The Solace Project. Some design patterns were inspired by prior Swift work on FAISS, but this repository contains only the Python + MLX implementation.
 
 ## Contributing
 
@@ -196,7 +209,7 @@ Contributions are welcome! Please feel free to submit pull requests or open issu
 
 - [FAISS](https://github.com/facebookresearch/faiss): The original Facebook AI Similarity Search library
 - [MLX](https://github.com/ml-explore/mlx): Apple's machine learning framework
-- [SwiftFaiss](https://github.com/jkrukowski/SwiftFaiss): The original Swift implementation used as reference
+ 
 ### Prerequisites
 
 - **Python 3.8+**
@@ -261,7 +274,6 @@ MetalFaiss/
 │   │   └── ...
 │   ├── example_usage.py   # Usage examples
 │   └── setup.py          # Package setup
-├── Sources/               # Swift implementation (legacy)
 └── README.md             # This file
 ```
 
@@ -356,28 +368,19 @@ This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md
 
 - **[Facebook Research](https://github.com/facebookresearch/faiss)** - Original FAISS library and research
 - **[Apple MLX Team](https://github.com/ml-explore/mlx)** - MLX framework enabling Metal acceleration
-- **[Jan Krukowski](https://github.com/jkrukowski/SwiftFaiss)** - Swift FAISS implementation that inspired this project
+ 
 - **FAISS Community** - For the foundational algorithms and research
 
 ---
 
 <div align="center">
 
-**⭐ Star this repo if Metal FAISS helped you! ⭐**
+**⭐ Star this repo if MetalFaiss helped you! ⭐**
 
 [🐛 Report Bug](https://github.com/SolaceHarmony/MetalFaiss/issues) • [✨ Request Feature](https://github.com/SolaceHarmony/MetalFaiss/issues) • [💬 Discussions](https://github.com/SolaceHarmony/MetalFaiss/discussions)
 
-Made with ❤️ by the Metal FAISS team
+Made with ❤️ by The Solace Project dev team
 
 </div>
 
-## 🗂️ Swift Implementation (Legacy)
-
-> **Note**: This repository also contains a Swift implementation of FAISS in the `Sources/` directory. However, the primary focus is now on the Python + MLX implementation described above.
-
-The Swift implementation is based on [SwiftFaiss](https://github.com/jkrukowski/SwiftFaiss) and provides:
-- Native Swift bindings to FAISS
-- iOS compatibility
-- Command-line tools
-
-For Swift usage, please refer to the original documentation or consider using the maintained [SwiftFaiss](https://github.com/jkrukowski/SwiftFaiss) project directly.
+ 
