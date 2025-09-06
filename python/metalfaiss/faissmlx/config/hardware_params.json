@@ -1,0 +1,36 @@
+{
+  "metal": {
+    "Apple M3": {
+      "av": "32x8",
+      "atb": "8x32",
+      "qr_dot_mode": "simd_threshold_512",
+      "svd_band": 32,
+      "svd_streams": 2
+    },
+    "Apple M2": {
+      "av": "16x16",
+      "atb": "16x16",
+      "qr_dot_mode": "simd_threshold_512"
+    },
+    "default": {
+      "av": "16x16",
+      "atb": "16x16",
+      "qr_dot_mode": "auto"
+    }
+  },
+  "cuda": {
+    "sm_90": {
+      "av": "64x8",
+      "atb": "8x64"
+    },
+    "sm_80": {
+      "av": "32x8",
+      "atb": "8x32"
+    },
+    "default": {
+      "av": "32x8",
+      "atb": "8x32"
+    }
+  }
+}
+

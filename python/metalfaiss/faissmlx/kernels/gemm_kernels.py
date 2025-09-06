@@ -44,6 +44,10 @@ try:
     import mlx.core.metal as metal
 except Exception:  # pragma: no cover
     metal = None  # type: ignore
+try:
+    from .. import tuning as _tuning
+except Exception:
+    _tuning = None
 
 _HEADER = """#include <metal_stdlib>\nusing namespace metal;\n"""
 
@@ -73,6 +77,17 @@ def _select_tile_av() -> Tuple[int, int]:
                 return tm, t
         except Exception:
             pass
+    # Config file override
+    if _tuning is not None:
+        av_cfg, _ = _tuning.tiles_for_gemm()
+        if av_cfg:
+            try:
+                tm_s, t_s = av_cfg.lower().split("x")
+                tm, t = int(tm_s), int(t_s)
+                if tm * t <= 1024 and tm > 0 and t > 0:
+                    return tm, t
+            except Exception:
+                pass
     name = _detect_device_name().lower()
     if "m3" in name:
         return 32, 8
@@ -94,6 +109,17 @@ def _select_tile_atb() -> Tuple[int, int, int]:
                 return tn, 16, tk
         except Exception:
             pass
+    # Config file override
+    if _tuning is not None:
+        _, atb_cfg = _tuning.tiles_for_gemm()
+        if atb_cfg:
+            try:
+                tn_s, tk_s = atb_cfg.lower().split("x")
+                tn, tk = int(tn_s), int(tk_s)
+                if tn * tk <= 1024 and tn > 0 and tk > 0:
+                    return tn, 16, tk
+            except Exception:
+                pass
     name = _detect_device_name().lower()
     if "m3" in name:
         return 8, 16, 32
