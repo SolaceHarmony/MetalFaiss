@@ -28,3 +28,14 @@ __all__ = [
     'write_binary_vector',
     'read_binary_vector'
 ]
+from .streams import (
+    on_stream_complete,
+    on_stream_complete_async,
+    after_eval,
+)
+
+__all__ = [
+    "on_stream_complete",
+    "on_stream_complete_async",
+    "after_eval",
+]
