@@ -208,6 +208,9 @@ Teaching note: what fast‑math changes
     
     Measure it
     - Use Xcode GPU capture to compare memory transactions and shader time for the two layouts on the same workload. Expect fewer scalar loads and improved throughput for the packed layout.
+
+Further reading
+- For a practical playbook of the dominant performance patterns (fused scan+select, warp‑level reductions, batching, static tuning, and streams), see `docs/mlx/Fastest-Patterns.md`.
 *   **Latency Hiding:**
     *   GPUs hide memory latency by switching to other threads. Higher register usage reduces the number of active threads (occupancy), making the shader more sensitive to latency.
     *   Initiate long-latency operations (like texture samples) as early as possible. This allows the GPU to issue the memory requests and switch to other threads, hiding the latency. Avoid structuring code in a way that creates unnecessary dependencies between these operations.

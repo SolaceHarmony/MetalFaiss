@@ -162,3 +162,12 @@ For a more comprehensive list of optimizations, see [Shader-Optimization-Tips.md
 ## Streams (Overlap & Boundaries)
 
 - Place independent tasks on explicit streams (CPU/GPU) to overlap work. Keep dependent steps in the same stream; synchronize only at program boundaries. See `docs/mlx/Streams-Guide.md` for examples.
+
+## Fast Patterns (Cheat Sheet)
+
+- Prefer fused kernels (e.g., IVF list scan + top‑k) to avoid extra memory traffic.
+- Use warp‑level reductions for large dot/reduction dimensions (QR c = Qᵀv). Heuristic: switch to simdgroup kernel when m is large (e.g., ≥512).
+- Batch queries that share candidates (one TG per query) to amortize launch overhead.
+- For long lists, chunk + device merge is preferable to chunk + host merge.
+- Set tile sizes via static config or env; avoid runtime autotuning in production.
+- See `docs/mlx/Fastest-Patterns.md` for details and knobs.
