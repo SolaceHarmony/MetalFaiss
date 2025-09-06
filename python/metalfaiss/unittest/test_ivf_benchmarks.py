@@ -11,7 +11,12 @@ import unittest
 from typing import Tuple
 import mlx.core as mx
 
-from ..faissmlx.kernels.ivf_kernels import ivf_list_topk_l2, ivf_list_topk_l2_chunked
+from ..faissmlx.kernels.ivf_kernels import (
+    ivf_list_topk_l2,
+    ivf_list_topk_l2_chunked,
+    ivf_list_topk_l2_chunked_device_merge,
+    ivf_list_topk_l2_batch,
+)
 
 
 def _median_time(fn, warmup=1, repeats=3):
@@ -193,6 +198,47 @@ class TestIVFBenchmarks(unittest.TestCase):
                         ivf_list_topk_l2_chunked(qv, X, I, k, rows_per_chunk=4096)
                 t_chunked = _median_time(_run_chunked)
                 print(f"  Fused concat (chunked): {t_chunked:.4f}s")
+
+                # Fused concat, chunked with device merge
+                def _run_chunked_devmerge():
+                    for qi in range(queries):
+                        qv = xq[qi]
+                        _, probe = q.search(qv[None, :], nprobe)
+                        probe_labels = probe[0]
+                        vecs = []
+                        ids = []
+                        for list_id in probe_labels:
+                            for vid, vec in X_lists[int(list_id)]:
+                                vecs.append(vec)
+                                ids.append(vid)
+                        if not vecs:
+                            continue
+                        X = mx.stack(vecs)
+                        I = mx.array(ids, dtype=mx.int32)
+                        ivf_list_topk_l2_chunked_device_merge(qv, X, I, k, rows_per_chunk=4096)
+                t_chunked_dm = _median_time(_run_chunked_devmerge)
+                print(f"  Fused concat (chunk+dev): {t_chunked_dm:.4f}s")
+
+                # Batched (synthetic): use same X for all queries of a batch
+                # Note: realistic when many queries probe same lists (e.g., small nprobe or cached lists)
+                def _run_batched_sameX():
+                    # use first query's probed lists for all, as a synthetic batch scenario
+                    qv = xq[0]
+                    _, probe = q.search(qv[None, :], nprobe)
+                    probe_labels = probe[0]
+                    vecs = []
+                    ids = []
+                    for list_id in probe_labels:
+                        for vid, vec in X_lists[int(list_id)]:
+                            vecs.append(vec)
+                            ids.append(vid)
+                    if not vecs:
+                        return None
+                    X = mx.stack(vecs)
+                    I = mx.array(ids, dtype=mx.int32)
+                    ivf_list_topk_l2_batch(xq, X, I, k)
+                t_batched = _median_time(_run_batched_sameX)
+                print(f"  Fused batched (same X): {t_batched:.4f}s")
 
                 # tpb override (if safe)
                 def _tpb_safe(k):
