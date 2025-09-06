@@ -129,6 +129,14 @@ When writing Metal kernels, be aware of common performance pitfalls that can sil
 
 For a more comprehensive list of optimizations, see [Shader-Optimization-Tips.md](../metal/Shader-Optimization-Tips.md) and [WWDC16-Optimization-Patterns.md](./WWDC16-Optimization-Patterns.md).
 
+## Tile Selection (Hardware-Aware)
+
+- Kernels in `gemm_kernels.py` select tile sizes at import using `mlx.core.metal.device_info()` and allow env overrides:
+  - `METALFAISS_GEMM_TILE_AV="TMxT"` (AV kernel, TN=TK=T)
+  - `METALFAISS_GEMM_TILE_ATB="TNxTK"` (AT_B kernel)
+- Defaults: M3 → AV(32×8), AT_B(8×32); other Apple GPUs default to 16×16.
+- Always benchmark on your device; (32,8) and (8,32) often compete with (16,16).
+
 ## HPC16x8 (128‑bit Limb Accumulation)
 
 - When float32 accumulations drift (long dots, Gram updates), emulate extended precision via 16‑bit limbs:
