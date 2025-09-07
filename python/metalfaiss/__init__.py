@@ -32,6 +32,9 @@ from .search_range_result import SearchRangeResult
 # Main index implementation
 from .indexflat import FlatIndex
 
+# Index Factory - String-based index creation
+from .index_factory import index_factory, get_supported_descriptions, reverse_factory
+
 # Base classes (use MLX-aware package implementation)
 from .vector_transform import BaseVectorTransform
 
@@ -42,6 +45,8 @@ from .demo_utils import load_data, encode_sentences, create_matrix, normalize_da
 # Distance functions
 from .distances import pairwise_L2sqr
 
+# Factory
+from .index_factory import index_factory, get_supported_descriptions
 # Clustering is MLX-only; import if present
 try:
     from .clustering import BaseClustering
@@ -67,6 +72,10 @@ __all__ = [
     
     # Distance functions
     "pairwise_L2sqr",
+    # Factory
+    "index_factory",
+    "get_supported_descriptions",
+    "reverse_factory",
     
     # Version info
     "__version__",

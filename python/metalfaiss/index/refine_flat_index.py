@@ -10,7 +10,7 @@ from typing import List, Optional, Tuple
 
 from ..types.metric_type import MetricType
 from ..utils.search_result import SearchResult
-from ..faissmlx.distances import pairwise_L2sqr
+from ..distances import pairwise_L2sqr
 from .base_index import BaseIndex
 from .flat_index import FlatIndex
 

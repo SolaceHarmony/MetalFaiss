@@ -403,3 +403,18 @@ Made with ❤️ by The Solace Project dev team
 </div>
 
  
+# Factory shortcuts (string grammar)
+# Compatible patterns for quick prototyping
+idx = metalfaiss.index_factory(128, "Flat")                 # Flat exact search
+idx = metalfaiss.index_factory(128, "IVF100,Flat")         # IVF (coarse k-means) + Flat
+idx = metalfaiss.index_factory(128, "HNSW32")              # HNSW graph index
+idx = metalfaiss.index_factory(128, "PQ8")                 # Product Quantizer index
+idx = metalfaiss.index_factory(128, "SQ8")                 # Scalar Quantizer index
+idx = metalfaiss.index_factory(128, "IDMap,Flat")          # External ID mapping wrapper
+idx = metalfaiss.index_factory(128, "IDMap2,Flat")         # Two-way ID map wrapper
+idx = metalfaiss.index_factory(128, "PCA32,Flat")          # Preprocessing + base index
+idx = metalfaiss.index_factory(128, "RFlat")               # Refine(Flat) alias
+
+# Reverse (index → factory string) for supported types
+key = metalfaiss.reverse_factory(idx)
+print(key)  # e.g., "IVF100,Flat"

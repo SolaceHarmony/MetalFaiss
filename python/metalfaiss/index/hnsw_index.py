@@ -12,7 +12,7 @@ from .base_index import BaseIndex
 from .hnsw import HNSW, HNSWStats
 from ..types.metric_type import MetricType
 from ..utils.search_result import SearchResult
-from ..faissmlx.distances import pairwise_L2sqr
+from ..distances import pairwise_L2sqr
 
 class HNSWIndex(BaseIndex):
     """HNSW index with optimized vector storage."""

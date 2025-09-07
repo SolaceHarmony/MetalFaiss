@@ -3,7 +3,13 @@ import mlx.core as mx
 from .base_index import BaseIndex
 from ..utils.search_result import SearchResult
 from ..types.metric_type import MetricType
-from ..faissmlx.distances import pairwise_L2sqr, fvec_inner_products_ny
+from ..distances import (
+    pairwise_L2sqr,
+    pairwise_L1,
+    pairwise_Linf,
+    pairwise_extra_distances,
+    pairwise_jaccard,
+)
 
 class FlatIndex(BaseIndex):
     """Flat index implementation using MLX.
@@ -19,10 +25,11 @@ class FlatIndex(BaseIndex):
             d: Dimension of vectors to index
             metric_type: Distance metric to use
         """
-        super().__init__(d)
+        super().__init__(d, metric=metric_type)
         self._metric_type = metric_type
         self._vectors: Optional[mx.array] = None
-        self._is_trained = True  # Flat index is always trained
+        self._is_trained = True  # legacy flag
+        self.is_trained = True   # base flag
         
     @classmethod
     def from_index(cls, index: BaseIndex) -> Optional['FlatIndex']:
@@ -57,7 +64,7 @@ class FlatIndex(BaseIndex):
             self._vectors = x
         else:
             self._vectors = mx.concatenate([self._vectors, x])
-        self._ntotal = len(self._vectors)
+        self.ntotal = len(self._vectors)
         
     def search(self, xs: List[List[float]], k: int) -> SearchResult:
         """Search for nearest neighbors.
@@ -78,22 +85,48 @@ class FlatIndex(BaseIndex):
             
         k = min(k, self.ntotal)
         
-        # Use optimized distance computations from faissmlx
-        if self.metric_type == MetricType.L2:
+        # Compute distances matrix (lower is better), except for INNER_PRODUCT
+        mt = self.metric_type
+        if mt == MetricType.L2:
             distances = pairwise_L2sqr(x, self._vectors)
-            # Get k smallest distances
-            values, indices = mx.topk(-distances, k, axis=1)
-            values = -values
-        else:  # Inner product
-            # Compute inner products efficiently
-            distances = -mx.matmul(x, self._vectors.T)
-            # Get k largest inner products
-            values, indices = mx.topk(distances, k, axis=1)
-            
-        return SearchResult(
-            distances=values.tolist(),
-            labels=indices.tolist()
-        )
+            idx = mx.argsort(distances, axis=1)[:, :k]
+            vals = mx.take_along_axis(distances, idx, axis=1)
+        elif mt == MetricType.L1:
+            distances = pairwise_L1(x, self._vectors)
+            idx = mx.argsort(distances, axis=1)[:, :k]
+            vals = mx.take_along_axis(distances, idx, axis=1)
+        elif mt == MetricType.Linf:
+            distances = pairwise_Linf(x, self._vectors)
+            idx = mx.argsort(distances, axis=1)[:, :k]
+            vals = mx.take_along_axis(distances, idx, axis=1)
+        elif mt == MetricType.Canberra:
+            distances = pairwise_extra_distances(x, self._vectors, "Canberra")
+            idx = mx.argsort(distances, axis=1)[:, :k]
+            vals = mx.take_along_axis(distances, idx, axis=1)
+        elif mt == MetricType.BrayCurtis:
+            distances = pairwise_extra_distances(x, self._vectors, "BrayCurtis")
+            idx = mx.argsort(distances, axis=1)[:, :k]
+            vals = mx.take_along_axis(distances, idx, axis=1)
+        elif mt == MetricType.JensenShannon:
+            distances = pairwise_extra_distances(x, self._vectors, "JensenShannon")
+            idx = mx.argsort(distances, axis=1)[:, :k]
+            vals = mx.take_along_axis(distances, idx, axis=1)
+        elif mt == MetricType.Jaccard:
+            distances = pairwise_jaccard(x, self._vectors)
+            idx = mx.argsort(distances, axis=1)[:, :k]
+            vals = mx.take_along_axis(distances, idx, axis=1)
+        elif mt == MetricType.INNER_PRODUCT:
+            sims = mx.matmul(x, self._vectors.T)
+            distances = -sims
+            idx = mx.argsort(distances, axis=1)[:, :k]
+            vals = mx.take_along_axis(distances, idx, axis=1)
+        else:
+            # Fallback to L2
+            distances = pairwise_L2sqr(x, self._vectors)
+            idx = mx.argsort(distances, axis=1)[:, :k]
+            vals = mx.take_along_axis(distances, idx, axis=1)
+
+        return vals, idx
         
     def xb(self) -> List[List[float]]:
         """Get stored vectors.
@@ -104,3 +137,6 @@ class FlatIndex(BaseIndex):
         if self._vectors is None:
             return []
         return self._vectors.tolist()
+    @property
+    def metric_type(self) -> MetricType:
+        return self._metric_type
