@@ -13,6 +13,7 @@ from .binary_index import BaseBinaryIndex
 from .binary_flat_index import BinaryFlatIndex
 from ..utils.search_result import SearchResult
 from ..errors import InvalidArgumentError
+from ..utils.sorting import mlx_topk
 
 class BinaryIVFIndex(BaseBinaryIndex):
     """Base class for binary IVF (Inverted File) indexes.
@@ -178,8 +179,7 @@ class BinaryIVFIndex(BaseBinaryIndex):
                 out_vals = mx.scatter(out_vals, mx.array([i]), sel.reshape((1, k)))
                 out_ids = mx.scatter(out_ids, mx.array([i]), ids_arr.reshape((1, k)))
             else:
-                vals, idx = mx.topk(-dists, k)
-                vals = -vals
+                vals, idx = mlx_topk(dists, k, largest=False)
                 ids_arr = mx.array([cids[j] for j in idx.tolist()], dtype=mx.int32)
                 out_vals = mx.scatter(out_vals, mx.array([i]), vals.reshape((1, k)))
                 out_ids = mx.scatter(out_ids, mx.array([i]), ids_arr.reshape((1, k)))

@@ -86,7 +86,7 @@ class AnyClustering(BaseClustering):
             for _ in range(1, self.k):
                 # Compute distances to existing centroids
                 distances = mx.min(
-                    mx.sum(mx.square(x[:, None] - mx.stack(centroids)), axis=-1),
+                    mx.sum(mx.square(mx.subtract(x[:, None], mx.stack(centroids))), axis=-1),
                     axis=-1
                 )
                 # Select next centroid probabilistically
@@ -102,7 +102,7 @@ class AnyClustering(BaseClustering):
                 old_centroids = self._centroids
                 
                 # Compute assignments
-                dists = mx.sum(mx.square(x[:, None] - self._centroids[None]), axis=2)
+                dists = mx.sum(mx.square(mx.subtract(x[:, None], self._centroids[None])), axis=2)
                 labels = mx.argmin(dists, axis=1)
                 
                 # Update centroids
@@ -118,7 +118,7 @@ class AnyClustering(BaseClustering):
                 self._centroids = mx.stack(new_centroids)
                 
                 # Check convergence
-                if mx.sum(mx.square(self._centroids - old_centroids)) < self.parameters.eps:
+                if mx.sum(mx.square(mx.subtract(self._centroids, old_centroids))) < self.parameters.eps:
                     break
                     
             mx.eval(self._centroids)

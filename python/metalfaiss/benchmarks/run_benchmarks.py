@@ -82,14 +82,17 @@ def _simple_quantizer(xb: mx.array, nlist: int):
     idx = mx.random.randint(0, N, (k,), dtype=mx.int32)
     C = xb[idx, :]
     for _ in range(3):
-        diff = xb[:, None, :] - C[None, :, :]
+        diff = mx.subtract(xb[:, None, :], C[None, :, :])
         d2 = mx.sum(mx.square(diff), axis=2)
         I = mx.argmin(d2, axis=1)
         for j in range(k):
             mask = (I == j)
-            cnt = int(mx.sum(mask).item())
-            if cnt > 0:
-                C[j] = mx.divide(mx.sum(mx.multiply(xb, mask[:, None]), axis=0), mx.array(cnt, dtype=xb.dtype))
+            cnt = mx.sum(mask)  # MLX scalar
+            # Only update centroid when count>0, avoid host casts
+            num = mx.sum(mx.multiply(xb, mask[:, None]), axis=0)
+            den = mx.maximum(cnt.astype(xb.dtype), mx.array(1.0, dtype=xb.dtype))
+            new_c = mx.divide(num, den)
+            C[j] = mx.where(cnt > 0, new_c, C[j])
     return C
 
 
@@ -108,7 +111,7 @@ def bench_ivf(d: int = 64, N: int = 32768, nlist: int = 128, QN: int = 16, nprob
     xq = mx.random.normal(shape=(QN, d)).astype(mx.float32)
 
     def probe_lists(qv):
-        diff = qv[None, :] - C
+        diff = mx.subtract(qv[None, :], C)
         d2q = mx.sum(mx.square(diff), axis=1)
         idx = mx.argsort(d2q)[:nprobe]
         return [int(t.item()) for t in idx]
@@ -124,7 +127,7 @@ def bench_ivf(d: int = 64, N: int = 32768, nlist: int = 128, QN: int = 16, nprob
             if not vecs:
                 continue
             X = mx.stack(vecs)
-            dists = mx.sum(mx.square(X - qv), axis=1)
+            dists = mx.sum(mx.square(mx.subtract(X, qv)), axis=1)
             _ = mx.argsort(dists)[:k]
     t_mlx = median_time(run_baseline)
 

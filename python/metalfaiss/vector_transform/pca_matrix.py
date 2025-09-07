@@ -57,7 +57,7 @@ class PCAMatrixTransform(BaseVectorTransform):
             
         # Center data
         self.mean = mx.mean(x, axis=0)
-        x_centered = x - self.mean
+        x_centered = mx.subtract(x, self.mean)
         
         # Optional random rotation (keyed RNG if provided)
         if self.random_rotation:
@@ -74,9 +74,9 @@ class PCAMatrixTransform(BaseVectorTransform):
         U_, S, Vt = topk_svd(x_centered, k=self.d_in)
         V = mx.transpose(Vt)
         if self.eigen_power != 0:
-            eigvals = (S * S) / (x_centered.shape[0] - 1)
-            scale = (eigvals[: self.d_out] + self.epsilon) ** (self.eigen_power / 2.0)
-            self.pca_matrix = V[:, : self.d_out] * scale
+            eigvals = mx.divide(mx.square(S), (x_centered.shape[0] - 1))
+            scale = mx.power(mx.add(eigvals[: self.d_out], self.epsilon), self.eigen_power / 2.0)
+            self.pca_matrix = mx.multiply(V[:, : self.d_out], scale)
         else:
             self.pca_matrix = V[:, : self.d_out]
         self._is_trained = True
@@ -97,7 +97,7 @@ class PCAMatrixTransform(BaseVectorTransform):
             raise ValueError(f"Input vectors dimension {x.shape[1]} != transform input dimension {self.d_in}")
             
         # Center and optionally rotate
-        x = x - self.mean
+        x = mx.subtract(x, self.mean)
         if self.random_rotation:
             x = mx.matmul(x, self.random_rotation_matrix)
             
@@ -125,7 +125,7 @@ class PCAMatrixTransform(BaseVectorTransform):
         # Inverse rotation and uncenter
         if self.random_rotation:
             x = mx.matmul(x, mx.transpose(self.random_rotation_matrix))
-        return x + self.mean
+        return mx.add(x, self.mean)
         
     @property
     def is_trained(self) -> bool:

@@ -135,9 +135,8 @@ def test_small(n: int = 32, k: int = 8, iters: int = 5) -> Tuple[float, float]:
     I = mx.eye(k)
     # Rayleigh: R = Q^T A Q should be diagonal-ish
     R = mx.matmul(mx.transpose(Q), mx.matmul(A, Q))
-    offdiag = R - mx.diag(mx.diag(R))
+    offdiag = mx.subtract(R, mx.diag(mx.diag(R)))
     mx.eval(QtQ, I, offdiag)
-    orth_err = float(mx.max(mx.abs(QtQ - I)).item())
+    orth_err = float(mx.max(mx.abs(mx.subtract(QtQ, I))).item())
     rayleigh_off = float(mx.max(mx.abs(offdiag)).item())
     return orth_err, rayleigh_off
-

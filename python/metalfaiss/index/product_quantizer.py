@@ -65,8 +65,8 @@ class ProductQuantizer:
             # k-means iterations
             for _ in range(25):  # More iterations for better convergence
                 # Compute distances to centroids
-                diff = x_reshaped[:, m, None, :] - centroids[None, :, :]  # Shape: (n, ksub, dsub)
-                distances = mx.sum(diff * diff, axis=2)  # Shape: (n, ksub)
+                diff = mx.subtract(x_reshaped[:, m, None, :], centroids[None, :, :])  # Shape: (n, ksub, dsub)
+                distances = mx.sum(mx.square(diff), axis=2)  # Shape: (n, ksub)
                 
                 # Assign to nearest centroid
                 assignments = mx.argmin(distances, axis=1)  # Shape: (n,)
@@ -82,7 +82,7 @@ class ProductQuantizer:
                 centroids = mx.stack(new_centroids)
                 
             self.centroids.append(centroids)
-            self.centroids_sq_lengths.append(mx.sum(centroids * centroids, axis=1))
+            self.centroids_sq_lengths.append(mx.sum(mx.square(centroids), axis=1))
             
         # Stack centroids into single array
         self.centroids = mx.stack(self.centroids)  # Shape: (M, ksub, dsub)
@@ -111,8 +111,8 @@ class ProductQuantizer:
         codes = []
         for m in range(self.M):
             # Compute distances to centroids
-            diff = x_reshaped[:, m, None, :] - self.centroids[m]  # Shape: (n, ksub, dsub)
-            distances = mx.sum(diff * diff, axis=2)  # Shape: (n, ksub)
+            diff = mx.subtract(x_reshaped[:, m, None, :], self.centroids[m])  # Shape: (n, ksub, dsub)
+            distances = mx.sum(mx.square(diff), axis=2)  # Shape: (n, ksub)
             codes.append(mx.argmin(distances, axis=1))
             
         return mx.stack(codes, axis=1)  # Shape: (n, M)

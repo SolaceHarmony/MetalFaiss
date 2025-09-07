@@ -31,7 +31,10 @@ class IDMap2(IDMap):
             ids: Optional vector IDs. If None, uses sequential IDs.
         """
         if ids is None:
-            ids = mx.arange(len(vectors)) + len(self.id_map)
+            ids = mx.add(
+                mx.arange(len(vectors)),
+                mx.array(len(self.id_map), dtype=mx.int32)
+            )
             
         # Store vectors for reconstruction
         for vec, id in zip(vectors, ids):

@@ -13,6 +13,7 @@ from ..utils.search_result import SearchResult
 from ..distances import pairwise_L2sqr
 from .base_index import BaseIndex
 from .flat_index import FlatIndex
+from ..utils.sorting import mlx_topk
 
 class RefineFlatIndex(BaseIndex):
     """
@@ -84,11 +85,9 @@ class RefineFlatIndex(BaseIndex):
                                           candidate_vectors)
             # refined_distances: shape (nq, candidate_count)
             # For L2, lower is better.
-            neg_refined = -refined_distances
-            values, new_order = mx.topk(neg_refined, k, axis=1)
-            refined_values = -values
+            refined_values, new_order = mlx_topk(refined_distances, k, axis=1, largest=False)
             refined_ids = mx.take(candidate_ids, new_order, axis=1)
-            return SearchResult(distances=refined_values, labels=refined_ids)
+            return SearchResult(distances=refined_values, indices=refined_ids)
 
         elif self.metric_type == MetricType.INNER_PRODUCT:
             # For inner product, higher is better.
@@ -96,9 +95,9 @@ class RefineFlatIndex(BaseIndex):
                                      candidate_vectors.transpose((0, 2, 1)))
             # refined_distances: shape (nq, 1, candidate_count); squeeze axis=1.
             refined_distances = refined_distances.squeeze(axis=1)
-            values, new_order = mx.topk(refined_distances, k, axis=1)
+            values, new_order = mlx_topk(refined_distances, k, axis=1, largest=True)
             refined_ids = mx.take(candidate_ids, new_order, axis=1)
-            return SearchResult(distances=values, labels=refined_ids)
+            return SearchResult(distances=values, indices=refined_ids)
         else:
             raise ValueError(f"Refined flat index currently supports only L2 and INNER_PRODUCT metrics; got {self.metric_type}.")
 

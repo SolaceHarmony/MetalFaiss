@@ -32,6 +32,12 @@ class SearchResult:
             distances=self.distances[idx],
             indices=self.indices[idx]
         )
+    
+    # Compatibility alias for code paths that historically used 'labels'.
+    # We keep this as a read-only view to avoid legacy container types.
+    @property
+    def labels(self) -> mx.array:
+        return self.indices
         
     # NumPy conversion helpers intentionally omitted in pure MLX build.
 

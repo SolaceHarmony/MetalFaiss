@@ -34,7 +34,7 @@ def fvec_L2sqr(x: mx.array, y: mx.array) -> mx.array:
     Returns:
         MLX scalar (0-d array) with the squared L2 distance.
     """
-    diff = x - y
+    diff = mx.subtract(x, y)
     # mx.dot returns an MLX scalar (0-d array); keep it on device.
     return mx.dot(diff, diff)
 
@@ -64,7 +64,7 @@ def fvec_L1(x: mx.array, y: mx.array) -> mx.array:
     Returns:
         MLX scalar (0-d array) with the L1 distance.
     """
-    return mx.sum(mx.abs(x - y))
+    return mx.sum(mx.abs(mx.subtract(x, y)))
 
 
 def fvec_Linf(x: mx.array, y: mx.array) -> mx.array:
@@ -78,7 +78,7 @@ def fvec_Linf(x: mx.array, y: mx.array) -> mx.array:
     Returns:
         MLX scalar (0-d array) with the L∞ distance.
     """
-    return mx.max(mx.abs(x - y))
+    return mx.max(mx.abs(mx.subtract(x, y)))
 
 
 ###############################################################################
@@ -87,16 +87,16 @@ def fvec_Linf(x: mx.array, y: mx.array) -> mx.array:
 
 def fvec_canberra(x: mx.array, y: mx.array) -> mx.array:
     """Compute Canberra distance between two vectors."""
-    num = mx.abs(x - y)
-    den = mx.abs(x) + mx.abs(y)
+    num = mx.abs(mx.subtract(x, y))
+    den = mx.add(mx.abs(x), mx.abs(y))
     den = mx.where(den > 0, den, mx.ones_like(den))
     return mx.sum(mx.divide(num, den))
 
 
 def fvec_bray_curtis(x: mx.array, y: mx.array) -> mx.array:
     """Compute Bray-Curtis distance between two vectors."""
-    num = mx.sum(mx.abs(x - y))
-    den = mx.sum(mx.abs(x + y))
+    num = mx.sum(mx.abs(mx.subtract(x, y)))
+    den = mx.sum(mx.abs(mx.add(x, y)))
     return mx.divide(num, mx.maximum(den, mx.array(1e-20, dtype=num.dtype)))
 
 
@@ -105,8 +105,8 @@ def fvec_jensen_shannon(x: mx.array, y: mx.array) -> mx.array:
     m = mx.multiply(mx.array(0.5, dtype=x.dtype), mx.add(x, y))
     # Avoid log(0); 0 * log(0) treated as 0
     tiny = mx.array(1e-20, dtype=x.dtype)
-    kl1 = mx.where(x > 0, mx.multiply(x, (mx.log(x) - mx.log(mx.maximum(m, tiny)))), mx.zeros_like(x))
-    kl2 = mx.where(y > 0, mx.multiply(y, (mx.log(y) - mx.log(mx.maximum(m, tiny)))), mx.zeros_like(y))
+    kl1 = mx.where(x > 0, mx.multiply(x, mx.subtract(mx.log(x), mx.log(mx.maximum(m, tiny)))), mx.zeros_like(x))
+    kl2 = mx.where(y > 0, mx.multiply(y, mx.subtract(mx.log(y), mx.log(mx.maximum(m, tiny)))), mx.zeros_like(y))
     return mx.multiply(mx.array(0.5, dtype=x.dtype), mx.add(mx.sum(kl1), mx.sum(kl2)))
 
 
@@ -161,23 +161,27 @@ def pairwise_extra_distances(xq: mx.array, xb: mx.array, metric: str) -> mx.arra
     nq, d = xq.shape
     nb = xb.shape[0]
     if metric == "Canberra":
-        num = mx.abs(xq[:, None, :] - xb[None, :, :])
-        den = mx.abs(xq[:, None, :]) + mx.abs(xb[None, :, :])
+        num = mx.abs(mx.subtract(xq[:, None, :], xb[None, :, :]))
+        den = mx.add(mx.abs(xq[:, None, :]), mx.abs(xb[None, :, :]))
         den = mx.where(den > 0, den, mx.ones_like(den))
         return mx.sum(mx.divide(num, den), axis=2)
     if metric == "BrayCurtis":
-        num = mx.sum(mx.abs(xq[:, None, :] - xb[None, :, :]), axis=2)
-        den = mx.sum(mx.abs(xq[:, None, :] + xb[None, :, :]), axis=2)
+        num = mx.sum(mx.abs(mx.subtract(xq[:, None, :], xb[None, :, :])), axis=2)
+        den = mx.sum(mx.abs(mx.add(xq[:, None, :], xb[None, :, :])), axis=2)
         return mx.divide(num, mx.maximum(den, mx.array(1e-20, dtype=num.dtype)))
     if metric == "JensenShannon":
         # Compute per pair JSD; simple loop over nq for clarity (moderate sizes)
         out = mx.zeros((nq, nb), dtype=mx.float32)
         for i in range(nq):
             xi = xq[i]
-            m = 0.5 * (xi[None, :] + xb)
-            kl1 = mx.where(xi[None, :] > 0, xi[None, :] * (mx.log(xi[None, :]) - mx.log(mx.maximum(m, 1e-20))), 0.0)
-            kl2 = mx.where(xb > 0, xb * (mx.log(xb) - mx.log(mx.maximum(m, 1e-20))), 0.0)
-            out[i] = 0.5 * (mx.sum(kl1, axis=1) + mx.sum(kl2, axis=1))
+            m = mx.multiply(mx.array(0.5, dtype=xi.dtype), mx.add(xi[None, :], xb))
+            kl1 = mx.where(xi[None, :] > 0,
+                           mx.multiply(xi[None, :], mx.subtract(mx.log(xi[None, :]), mx.log(mx.maximum(m, 1e-20)))),
+                           mx.array(0.0, dtype=xi.dtype))
+            kl2 = mx.where(xb > 0,
+                           mx.multiply(xb, mx.subtract(mx.log(xb), mx.log(mx.maximum(m, 1e-20)))),
+                           mx.array(0.0, dtype=xi.dtype))
+            out[i] = mx.multiply(mx.array(0.5, dtype=xi.dtype), mx.add(mx.sum(kl1, axis=1), mx.sum(kl2, axis=1)))
         return out
     raise ValueError(f"Unsupported extra metric: {metric}")
 
@@ -257,18 +261,18 @@ def fvec_L2sqr_ny(x: mx.array, y: mx.array) -> mx.array:
     Returns:
         MLX array of shape (ny,) with the squared distances.
     """
-    diff = y - x
+    diff = mx.subtract(y, x)
     return mx.sum(mx.square(diff), axis=1)
 
 
 def pairwise_L1(xq: mx.array, xb: mx.array) -> mx.array:
     """Pairwise L1 distances between rows of xq (nq,d) and xb (nb,d)."""
-    return mx.sum(mx.abs(xq[:, None, :] - xb[None, :, :]), axis=2)
+    return mx.sum(mx.abs(mx.subtract(xq[:, None, :], xb[None, :, :])), axis=2)
 
 
 def pairwise_Linf(xq: mx.array, xb: mx.array) -> mx.array:
     """Pairwise Linf distances between rows of xq (nq,d) and xb (nb,d)."""
-    return mx.max(mx.abs(xq[:, None, :] - xb[None, :, :]), axis=2)
+    return mx.max(mx.abs(mx.subtract(xq[:, None, :], xb[None, :, :])), axis=2)
 
 
 def pairwise_jaccard(xq: mx.array, xb: mx.array) -> mx.array:

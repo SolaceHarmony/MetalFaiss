@@ -35,9 +35,9 @@ def complete_basis(Q: mx.array) -> mx.array:
         v = mx.random.normal(shape=(m,), dtype=R.dtype)
         # two‑pass MGS projection
         c1 = mx.matmul(mx.transpose(R), v)
-        v = v - mx.matmul(R, c1)
+        v = mx.subtract(v, mx.matmul(R, c1))
         c2 = mx.matmul(mx.transpose(R), v)
-        v = v - mx.matmul(R, c2)
+        v = mx.subtract(v, mx.matmul(R, c2))
         nrm = mx.sqrt(mx.sum(mx.square(v)))
         denom = mx.where(nrm > 0, nrm, mx.ones_like(nrm))
         u = mx.divide(v, denom)
@@ -76,15 +76,15 @@ def orthogonalize_blocked(A: mx.array, B: int = 32) -> mx.array:
             if j > b:
                 Qb = Q[:, b:j]
                 c1 = mx.matmul(mx.transpose(Qb), v)
-                v = v - mx.matmul(Qb, c1)
+                v = mx.subtract(v, mx.matmul(Qb, c1))
                 c2 = mx.matmul(mx.transpose(Qb), v)
-                v = v - mx.matmul(Qb, c2)
+                v = mx.subtract(v, mx.matmul(Qb, c2))
             if b > 0:
                 Qprev = Q[:, :b]
                 c1 = mx.matmul(mx.transpose(Qprev), v)
-                v = v - mx.matmul(Qprev, c1)
+                v = mx.subtract(v, mx.matmul(Qprev, c1))
                 c2 = mx.matmul(mx.transpose(Qprev), v)
-                v = v - mx.matmul(Qprev, c2)
+                v = mx.subtract(v, mx.matmul(Qprev, c2))
             nrm = mx.sqrt(mx.sum(mx.square(v)))
             denom = mx.where(nrm > 0, nrm, mx.ones_like(nrm))
             Q[:, j] = mx.divide(v, denom)

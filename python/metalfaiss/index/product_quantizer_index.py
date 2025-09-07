@@ -11,6 +11,7 @@ from .base_index import BaseIndex
 from .product_quantizer import ProductQuantizer
 from ..types.metric_type import MetricType
 from ..utils.search_result import SearchResult
+from ..utils.sorting import mlx_topk
 
 class ProductQuantizerIndex(BaseIndex):
     """Index based on Product Quantizer.
@@ -98,11 +99,11 @@ class ProductQuantizerIndex(BaseIndex):
             
             for m in range(self.pq.M):
                 # Compute distances to centroids for this subquantizer
-                diff = x_reshaped[:, m, None, :] - self.pq.centroids[m]  # Shape: (n, ksub, dsub)
-                subdist = mx.sum(diff * diff, axis=2)  # Shape: (n, ksub)
+                diff = mx.subtract(x_reshaped[:, m, None, :], self.pq.centroids[m])  # Shape: (n, ksub, dsub)
+                subdist = mx.sum(mx.square(diff), axis=2)  # Shape: (n, ksub)
                 
                 # Look up distances for codes
-                distances += subdist[mx.arange(n)[:, None], self._codes[:, m]]
+                distances = mx.add(distances, subdist[mx.arange(n)[:, None], self._codes[:, m]])
                 
         else:  # Inner product
             # For IP, compute per-subquantizer inner products then sum
@@ -114,17 +115,12 @@ class ProductQuantizerIndex(BaseIndex):
                 ip = mx.matmul(x_reshaped[:, m], self.pq.centroids[m].T)  # Shape: (n, ksub)
                 
                 # Look up inner products for codes
-                distances += ip[mx.arange(n)[:, None], self._codes[:, m]]
-            distances = -distances  # Convert to distances
+                distances = mx.add(distances, ip[mx.arange(n)[:, None], self._codes[:, m]])
+            distances = mx.negative(distances)  # Convert to distances
             
         # Get k nearest neighbors
-        values, indices = mx.topk(-distances, k, axis=1)
-        values = -values
-        
-        return SearchResult(
-            distances=values.tolist(),
-            labels=indices.tolist()
-        )
+        values, indices = mlx_topk(distances, k, axis=1, largest=False)
+        return SearchResult(distances=values, indices=indices)
         
     def reconstruct(self, key: int) -> List[float]:
         """Reconstruct vector from its PQ code.
