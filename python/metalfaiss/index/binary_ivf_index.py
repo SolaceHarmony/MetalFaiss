@@ -138,52 +138,53 @@ class BinaryIVFIndex(BaseBinaryIndex):
         # Find nprobe closest centroids for each query
         coarse = self._quantizer.search(xs, self._nprobe)
         
-        # Search each relevant list
-        all_distances = []  # type: List[List[int]]
-        all_labels = []  # type: List[List[int]]
-        
-        for i in range(n):  # For each query
-            # Collect candidates from relevant lists
-            candidates = []  # type: List[Tuple[int, mx.array]]
+        # Allocate outputs as MLX arrays
+        out_vals = mx.zeros((n, k), dtype=mx.float32)
+        out_ids = mx.zeros((n, k), dtype=mx.int32)
+        inf = mx.divide(mx.ones((), dtype=mx.float32), mx.zeros((), dtype=mx.float32))
+
+        for i in range(n):  # per‑query; candidate gathering still Python‑side
+            # Gather candidate vectors/ids from probed lists
+            lids = coarse.labels[i]
+            cvecs: List[mx.array] = []
+            cids: List[int] = []
             for j in range(self._nprobe):
-                list_no = coarse.labels[i][j]
-                candidates.extend(self._invlists[list_no])
-                
-            if not candidates:
-                # No candidates found
-                all_distances.append([float('inf')] * k)
-                all_labels.append([-1] * k)
+                list_no = int(lids[j])
+                if list_no < 0 or list_no >= self._nlist:
+                    continue
+                lst = self._invlists[list_no]
+                if not lst:
+                    continue
+                for vid, vec in lst:
+                    cids.append(int(vid))
+                    cvecs.append(vec)
+
+            if not cvecs:
+                out_vals = mx.scatter(out_vals, mx.array([i]), mx.broadcast_to(inf, (1, k)))
+                out_ids = mx.scatter(out_ids, mx.array([i]), mx.zeros((1, k), dtype=mx.int32))
                 continue
-                
-            # Compute Hamming distances to candidates
-            cand_vecs = mx.stack([v for _, v in candidates])
-            cand_ids = [id for id, _ in candidates]
-            
-            dists = self.hamming_distances(x[i:i+1], cand_vecs)[0]
-            
-            # Get top k
-            if len(dists) <= k:
-                # Not enough candidates
-                sorted_idx = mx.argsort(dists)
-                distances = dists[sorted_idx].tolist()
-                labels = [cand_ids[j] for j in sorted_idx.tolist()]
-                
-                # Pad with sentinel values
-                distances.extend([float('inf')] * (k - len(distances)))
-                labels.extend([-1] * (k - len(labels)))
+
+            C = mx.stack(cvecs)  # (L, d_bits)
+            dists = self.hamming_distances(x[i:i+1], C)[0]  # (L,)
+            L = int(dists.shape[0])
+            if L <= k:
+                order = mx.argsort(dists)
+                sel = dists[order]
+                ids_arr = mx.array([cids[j] for j in order.tolist()], dtype=mx.int32)
+                if L < k:
+                    pad = k - L
+                    sel = mx.concatenate([sel, mx.broadcast_to(inf, (pad,))])
+                    ids_arr = mx.concatenate([ids_arr, mx.zeros((pad,), dtype=mx.int32)])
+                out_vals = mx.scatter(out_vals, mx.array([i]), sel.reshape((1, k)))
+                out_ids = mx.scatter(out_ids, mx.array([i]), ids_arr.reshape((1, k)))
             else:
-                # Get top k
-                values, indices = mx.topk(-dists, k)
-                distances = (-values).tolist()
-                labels = [cand_ids[j] for j in indices.tolist()]
-                
-            all_distances.append(distances)
-            all_labels.append(labels)
-            
-        return SearchResult(
-            distances=all_distances,
-            labels=all_labels
-        )
+                vals, idx = mx.topk(-dists, k)
+                vals = -vals
+                ids_arr = mx.array([cids[j] for j in idx.tolist()], dtype=mx.int32)
+                out_vals = mx.scatter(out_vals, mx.array([i]), vals.reshape((1, k)))
+                out_ids = mx.scatter(out_ids, mx.array([i]), ids_arr.reshape((1, k)))
+
+        return SearchResult(distances=out_vals, indices=out_ids)
         
     def _reconstruct(self, key: int) -> List[int]:
         """Reconstruct vector from storage.

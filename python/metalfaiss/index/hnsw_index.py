@@ -35,6 +35,8 @@ class HNSWIndex(BaseIndex):
         
         # HNSW graph structure
         self.hnsw = HNSW(M)
+        # Precompute MLX +inf scalar for sentinels
+        self._inf = mx.divide(mx.ones((), dtype=mx.float32), mx.zeros((), dtype=mx.float32))
         
         # Vector storage using MLX array
         self._vectors: Optional[mx.array] = None
@@ -97,9 +99,9 @@ class HNSWIndex(BaseIndex):
         
         def dist_computer(i: int, j: int) -> float:
             if i == -1 or j == -1:
-                return float('inf')
+                return float(self._inf)
             if i >= len(self._vectors) or j >= len(self._vectors):
-                return float('inf')
+                return float(self._inf)
                 
             # Check cache
             cache_key = (min(i, j), max(i, j))

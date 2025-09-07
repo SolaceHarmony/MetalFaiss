@@ -40,6 +40,8 @@ class MinimaxHeap:
         self.nvalid = 0  # Number of valid entries
         self.ids = mx.zeros(capacity, dtype=mx.int32)
         self.distances = mx.zeros(capacity, dtype=mx.float32)
+        # Static +inf scalar for sentinels
+        self._inf = mx.divide(mx.ones((), dtype=mx.float32), mx.zeros((), dtype=mx.float32))
         
     def push(self, idx: int, dist: float) -> None:
         """Add new element following FAISS logic."""
@@ -110,18 +112,18 @@ class MinimaxHeap:
     def pop_min(self) -> Tuple[int, float]:
         """Remove and return minimum element."""
         if self.n == 0:
-            return -1, float('inf')
+            return -1, float(self._inf)
             
         # Find minimum valid element
         min_idx = -1
-        min_dist = float('inf')
+        min_dist = float(self._inf)
         
         # Use MLX operations for efficiency
         valid_mask = self.ids != -1
         if mx.sum(valid_mask) == 0:
-            return -1, float('inf')
+            return -1, float(self._inf)
             
-        distances = mx.where(valid_mask, self.distances, float('inf'))
+        distances = mx.where(valid_mask, self.distances, self._inf)
         min_dist = float(mx.min(distances))
         min_indices = mx.where(distances == min_dist)[0]
         min_idx = int(mx.max(min_indices))  # Take rightmost minimum

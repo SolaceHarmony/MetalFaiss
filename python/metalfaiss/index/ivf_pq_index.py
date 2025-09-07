@@ -136,13 +136,13 @@ class IVFPQIndex(BaseIndex):
         for i in range(nq):
             q = xq[i]
             # Coarse probe
-        d2 = mx.sum(mx.square(self._centroids - q[None, :]), axis=1)
-            probe = mx.argsort(d2)[: self._nprobe].tolist()
+            d2 = mx.sum(mx.square(self._centroids - q[None, :]), axis=1)
+            probe_idx = mx.argsort(d2)[: self._nprobe]
             # Accumulate candidates in MLX
             vals_accum: Optional[mx.array] = None
             ids_accum: Optional[mx.array] = None
-            for lid in probe:
-                lid_int = int(lid)
+            for j in range(int(probe_idx.shape[0])):
+                lid_int = int(probe_idx[j])
                 codes_list = self._codes[lid_int]
                 if not codes_list:
                     continue

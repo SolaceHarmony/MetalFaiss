@@ -132,11 +132,11 @@ class FlatIndex(BaseIndex):
         """Get stored vectors.
         
         Returns:
-            List of stored vectors
+            Stored vectors as an MLX array
         """
         if self._vectors is None:
-            return []
-        return self._vectors.tolist()
+            return mx.zeros((0, self.d), dtype=mx.float32)
+        return self._vectors
     @property
     def metric_type(self) -> MetricType:
         return self._metric_type

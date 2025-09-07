@@ -144,8 +144,9 @@ class BinaryHNSWIndex(BaseBinaryIndex):
         n = len(x)
         
         # Search each query
-        all_distances = []
-        all_labels = []
+        out_vals = mx.zeros((n, k), dtype=mx.float32)
+        out_ids = mx.zeros((n, k), dtype=mx.int32)
+        inf = mx.divide(mx.ones((), dtype=mx.float32), mx.zeros((), dtype=mx.float32))
         
         for i in range(n):
             # Create distance computer for this query
@@ -173,22 +174,27 @@ class BinaryHNSWIndex(BaseBinaryIndex):
             else:
                 dists, idx = [], []
                 
-            # Pad if needed
-            if len(dists) < k:
-                dists = list(dists) + [float('inf')] * (k - len(dists))
-                idx = list(idx) + [-1] * (k - len(idx))
-                
-            # Map indices to IDs
+            # Convert to MLX arrays, pad with MLX scalars
+            L = len(dists)
+            if L > 0:
+                dv = mx.array(dists, dtype=mx.float32)
+                iv = mx.array(idx, dtype=mx.int32)
+            else:
+                dv = mx.zeros((0,), dtype=mx.float32)
+                iv = mx.zeros((0,), dtype=mx.int32)
+            if L < k:
+                pad = k - L
+                dv = mx.concatenate([dv, mx.broadcast_to(inf, (pad,))])
+                iv = mx.concatenate([iv, mx.full((pad,), -1, dtype=mx.int32)])
+            # Map to external IDs if present
             if self.ids is not None:
-                idx = [int(self.ids[j]) if j >= 0 else -1 for j in idx]
-                
-            all_distances.append(dists)
-            all_labels.append(idx)
-            
-        return SearchResult(
-            distances=all_distances,
-            labels=all_labels
-        )
+                mask = iv >= 0
+                mapped = mx.where(mask, mx.take(self.ids, mx.maximum(iv, mx.zeros_like(iv))), mx.full_like(iv, -1))
+                iv = mapped.astype(mx.int32)
+            out_vals = mx.scatter(out_vals, mx.array([i]), dv.reshape((1, k)))
+            out_ids = mx.scatter(out_ids, mx.array([i]), iv.reshape((1, k)))
+
+        return SearchResult(distances=out_vals, indices=out_ids)
         
     def _reconstruct(self, key: int) -> List[int]:
         """Reconstruct vector from storage.
