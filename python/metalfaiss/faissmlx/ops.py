@@ -154,7 +154,8 @@ def l2_distances(x: mx.array, y: mx.array) -> mx.array:
     xx = sum(mx.square(x), axis=1, keepdims=True)  # (n, 1)
     yy = sum(mx.square(y), axis=1)                 # (m,)
     xy = matmul(x, transpose(y))                  # (n, m)
-    return mx.subtract(mx.add(xx, yy), mx.multiply(xy, 2))
+    # subtract 2*xy using add(xy, xy) to avoid Python scalars
+    return mx.subtract(mx.add(xx, yy), mx.add(xy, xy))
 
 def cosine_distances(x: mx.array, y: mx.array) -> mx.array:
     """Compute pairwise cosine distances.
@@ -173,7 +174,7 @@ def cosine_distances(x: mx.array, y: mx.array) -> mx.array:
     y = mx.divide(y, y_norm)
     # Compute 1 - cos(theta)
     dot = matmul(x, transpose(y))
-    return mx.subtract(1.0, dot)
+    return mx.subtract(mx.ones_like(dot), dot)
 
 def hamming_distances(x: mx.array, y: mx.array) -> mx.array:
     """Compute pairwise Hamming distances.

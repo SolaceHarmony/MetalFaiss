@@ -75,7 +75,8 @@ class OPQTransform(BaseVectorTransform):
                 sub_c = sub_centroids[m]
                 nx = mx.sum(mx.square(sub_x), axis=1, keepdims=True)
                 nc = mx.sum(mx.square(sub_c), axis=1, keepdims=True)
-                d2 = mx.subtract(mx.add(nx, mx.transpose(nc)), mx.multiply(2, mx.matmul(sub_x, sub_c.T)))
+                mm = mx.matmul(sub_x, sub_c.T)
+                d2 = mx.subtract(mx.add(nx, mx.transpose(nc)), mx.add(mm, mm))
                 labels = mx.argmin(d2, axis=1)
                 k = sub_c.shape[0]
                 oh = (labels.reshape((-1, 1)) == mx.arange(k).reshape((1, -1))).astype(mx.float32)
@@ -115,7 +116,8 @@ class OPQTransform(BaseVectorTransform):
         for _ in range(self.n_iter_pq):
             nx = mx.sum(mx.square(x), axis=1, keepdims=True)
             nc = mx.sum(mx.square(centroids), axis=1, keepdims=True)
-            d2 = mx.subtract(mx.add(nx, mx.transpose(nc)), mx.multiply(2, mx.matmul(x, centroids.T)))
+            mm = mx.matmul(x, centroids.T)
+            d2 = mx.subtract(mx.add(nx, mx.transpose(nc)), mx.add(mm, mm))
             labels = mx.argmin(d2, axis=1)
             oh = (labels.reshape((-1, 1)) == mx.arange(k).reshape((1, -1))).astype(mx.float32)
             counts = mx.sum(oh, axis=0).reshape((k, 1))

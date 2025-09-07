@@ -246,10 +246,11 @@ class BaseLinearTransform(BaseVectorTransform):
             raise RuntimeError("Transform matrix not initialized")
             
         # For rectangular A (d_out x d_in), check row-orthonormality: A A^T = I_{d_out}
-        A = mx.multiply(self.A, 1.0)
+        A = self.A
         AAT = mx.matmul(A, A.T)
         I = mx.eye(AAT.shape[0])
-        self.is_orthonormal = bool(mx.all(mx.less(mx.abs(mx.subtract(AAT, I)), 1e-5)))
+        tol = mx.array(1e-5, dtype=AAT.dtype)
+        self.is_orthonormal = bool(mx.all(mx.less(mx.abs(mx.subtract(AAT, I)), tol)))
         
     def check_identical(self, other: BaseVectorTransform) -> None:
         """Check if transforms are identical.
