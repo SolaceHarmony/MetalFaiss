@@ -104,7 +104,7 @@ class FlatIndex:
         selected_ids = mx.take(self.ids, indices, axis=0)
         return SearchResult(distances=values, labels=selected_ids)
 
-    def reconstruct(self, key: int) -> List[float]:
+    def reconstruct(self, key: int) -> mx.array:
         """
         Retrieve the stored vector corresponding to the given key.
         
@@ -112,11 +112,12 @@ class FlatIndex:
             key: The index (or ID) of the vector to reconstruct.
         
         Returns:
-            The vector as a Python list.
+            The vector as an MLX array of shape (d,).
         """
         if self.xb is None or key < 0 or key >= self.ntotal:
             raise ValueError("Invalid key for reconstruction.")
-        return self.xb[key].tolist()
+        # Return an MLX slice; avoid host conversions
+        return self.xb[key]
 
     def reset(self) -> None:
         """
