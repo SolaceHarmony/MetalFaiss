@@ -5,6 +5,7 @@ opq.py - Optimized Product Quantization transform for MetalFaiss (MLX-only)
 import mlx.core as mx
 from typing import Optional
 from .base_vector_transform import BaseVectorTransform
+from ..faissmlx.svd import topk_svd
 
 class OPQTransform(BaseVectorTransform):
     """Optimized Product Quantization transform (MLX-only).
@@ -49,7 +50,8 @@ class OPQTransform(BaseVectorTransform):
                 R0 = mx.random.normal(shape=(self.d_in, self.d_in), key=kR).astype(mx.float32)
             else:
                 R0 = mx.random.normal(shape=(self.d_in, self.d_in)).astype(mx.float32)
-            U, _, Vt = mx.linalg.svd(R0, stream=mx.cpu)
+            # MLX SVD (CPU) is not allowed; use our top‑k SVD kernel
+            U, _, Vt = topk_svd(R0, k=self.d_in, iters=3, use_kernel=True, use_compile=True)
             R = mx.matmul(U, Vt)
         else:
             R = mx.eye(self.d_in, dtype=mx.float32)
@@ -81,7 +83,7 @@ class OPQTransform(BaseVectorTransform):
                 C_block = mx.matmul(sub_x.T, matched)
                 C[s:e, s:e] = C_block
 
-            U, _, Vt = mx.linalg.svd(C, stream=mx.cpu)
+            U, _, Vt = topk_svd(C, k=self.d_in, iters=3, use_kernel=True, use_compile=True)
             R = mx.matmul(U, Vt)
 
         self.rotation_matrix = R

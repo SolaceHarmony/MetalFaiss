@@ -56,7 +56,7 @@ def orthogonal(shape, gain: float = 1.0) -> mx.array:
     rows = shp[0]
     cols = 1
     for d in shp[1:]:
-        cols *= d
+        cols = mx.multiply(cols, d)
     size = max(rows, cols)
     W = mx.random.normal(shape=(size, size)).astype(mx.float32)
     Q, _ = pure_mlx_qr(W)

@@ -6,6 +6,7 @@ import mlx.core as mx
 from typing import Optional
 from .base_vector_transform import BaseVectorTransform
 from .pca_matrix import PCAMatrixTransform
+from ..faissmlx.svd import topk_svd
 
 class ITQTransform(BaseVectorTransform):
     """Iterative Quantization transform.
@@ -69,7 +70,7 @@ class ITQTransform(BaseVectorTransform):
             R0 = mx.random.normal(shape=(self.d_out, self.d_out), key=kR).astype(mx.float32)
         else:
             R0 = mx.random.normal(shape=(self.d_out, self.d_out)).astype(mx.float32)
-        U, _, Vt = mx.linalg.svd(R0, stream=mx.cpu)
+        U, _, Vt = topk_svd(R0, k=self.d_out, iters=3, use_kernel=True, use_compile=True)
         R = mx.matmul(U, Vt)
         
         # Iterative quantization
@@ -80,7 +81,7 @@ class ITQTransform(BaseVectorTransform):
             
             # Fix B, update R
             C = mx.matmul(v.T, B)
-            U2, _, Vt2 = mx.linalg.svd(C, stream=mx.cpu)
+            U2, _, Vt2 = topk_svd(C, k=self.d_out, iters=3, use_kernel=True, use_compile=True)
             R = mx.matmul(U2, Vt2)
             
         self.rotation_matrix = R

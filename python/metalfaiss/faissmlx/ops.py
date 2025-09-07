@@ -154,8 +154,7 @@ def l2_distances(x: mx.array, y: mx.array) -> mx.array:
     xx = sum(mx.square(x), axis=1, keepdims=True)  # (n, 1)
     yy = sum(mx.square(y), axis=1)                 # (m,)
     xy = matmul(x, transpose(y))                  # (n, m)
-    xy2 = mx.add(xy, xy)
-    return mx.subtract(mx.add(xx, yy), xy2)
+    return mx.subtract(mx.add(xx, yy), mx.multiply(xy, 2))
 
 def cosine_distances(x: mx.array, y: mx.array) -> mx.array:
     """Compute pairwise cosine distances.
@@ -174,7 +173,7 @@ def cosine_distances(x: mx.array, y: mx.array) -> mx.array:
     y = mx.divide(y, y_norm)
     # Compute 1 - cos(theta)
     dot = matmul(x, transpose(y))
-    return mx.subtract(mx.ones_like(dot), dot)
+    return mx.subtract(1.0, dot)
 
 def hamming_distances(x: mx.array, y: mx.array) -> mx.array:
     """Compute pairwise Hamming distances.
@@ -191,26 +190,26 @@ def hamming_distances(x: mx.array, y: mx.array) -> mx.array:
     table = mx.array(table_py, dtype=mx.uint8)
     
     # Compute XOR then lookup Hamming weights
-    xor = x[:, None, :] ^ y[None, :, :]  # (n, m, d)
+    xor = mx.bitwise_xor(x[:, None, :], y[None, :, :])  # (n, m, d)
     return sum(table[xor], axis=2, dtype="uint32")
 
 # Binary Ops
 
 def binary_and(x: mx.array, y: mx.array) -> mx.array:
     """Bitwise AND."""
-    return x & y
+    return mx.bitwise_and(x, y)
 
 def binary_or(x: mx.array, y: mx.array) -> mx.array:
     """Bitwise OR."""
-    return x | y
+    return mx.bitwise_or(x, y)
 
 def binary_xor(x: mx.array, y: mx.array) -> mx.array:
     """Bitwise XOR."""
-    return x ^ y
+    return mx.bitwise_xor(x, y)
 
 def binary_not(x: mx.array) -> mx.array:
     """Bitwise NOT."""
-    return ~x
+    return mx.bitwise_not(x)
 
 def popcount(x: mx.array) -> mx.array:
     """Count number of 1 bits in each element.

@@ -22,9 +22,9 @@ import mlx.core as mx
 
 def _add_comp(a: mx.array, b: mx.array) -> Tuple[mx.array, mx.array]:
     """TwoSum-like compensated add: returns (sum, err)."""
-    s = a + b
-    v = s - a
-    e = (a - (s - v)) + (b - v)
+    s = mx.add(a, b)
+    v = mx.subtract(s, a)
+    e = mx.add(mx.subtract(a, mx.subtract(s, v)), mx.subtract(b, v))
     return s, e
 
 
@@ -42,7 +42,7 @@ class HPC16x8:
     @classmethod
     def from_array(cls, x: mx.array) -> "HPC16x8":
         x32 = mx.array(x, dtype=mx.float32)
-        low = x - x32
+        low = mx.subtract(x, x32)
         return cls(x32, low)
 
     def to_float32(self) -> mx.array:
@@ -65,9 +65,9 @@ def kahan_sum(x: mx.array) -> mx.array:
     # Elementwise Kahan; fine for modest sizes used in guard paths/tests.
     for i in range(n):
         xi = x[i]
-        y = xi - c
-        t = s + y
-        c = (t - s) - y
+        y = mx.subtract(xi, c)
+        t = mx.add(s, y)
+        c = mx.subtract(mx.subtract(t, s), y)
         s = t
     return s
 
