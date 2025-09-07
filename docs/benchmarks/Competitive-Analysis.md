@@ -68,7 +68,7 @@ Faiss Ecosystem                 MetalFaiss
 │   C++ Core       │           │   Python Core    │
 │   ├─ SIMD        │           │   ├─ MLX Arrays  │
 │   ├─ CUDA        │           │   ├─ Metal       │
-│   └─ OpenMP      │           │   └─ NumPy       │
+│   └─ OpenMP      │           │                  │
 │                  │           │                  │
 │ Complex Build    │           │ Simple Install   │
 │ High Performance │           │ High Flexibility │

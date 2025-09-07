@@ -9,7 +9,8 @@ The Python implementation is **fully functional** and ready for use:
 - ✅ **Core Classes**: `FlatIndex`, `MetricType`, `SearchResult`, `SearchRangeResult`
 - ✅ **Distance Functions**: Complete distance computation with multiple metrics (L2, L1, L∞, Inner Product)
 - ✅ **Vector Operations**: Add vectors, k-NN search, range search, reconstruction
-- ✅ **MLX Integration**: Full MLX support with NumPy fallback for compatibility
+- ✅ **MLX Integration**: MLX‑only on Apple Silicon (no NumPy fallback)
+- ✅ **Factory System**: `index_factory()` and `reverse_factory()` string grammar
 - ✅ **Tests**: Unit tests passing (3/3 in `test_distances.py`)
 - ✅ **Examples**: Comprehensive working example in `basic_usage.py`
 
@@ -55,7 +56,7 @@ reconstructed = index.reconstruct(0)  # [1.0, 0.0, 0.0]
 - Perform efficient k-NN searches
 - Use multiple distance metrics
 - Reconstruct stored vectors
-- Work with both MLX (Apple Silicon) and NumPy (any platform)
+- Work with MLX on Apple Silicon
 
 The project successfully provides a working alternative to FAISS for Python users, with the potential for Metal acceleration on Apple platforms.
 

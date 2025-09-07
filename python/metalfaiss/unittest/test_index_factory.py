@@ -144,14 +144,10 @@ class TestIndexFactory(unittest.TestCase):
     
     def test_complex_combinations(self):
         """Test complex index combinations."""
-        # This should work once we implement more advanced features
-        try:
-            # Test IVF+PQ combination 
-            index = index_factory(self.d, "IVF50,PQ4")
-            self.assertIsNotNone(index)
-        except (NotImplementedError, InvalidArgumentError):
-            # Expected for now since we haven't implemented IVF+PQ fully
-            pass
+        # IVF+PQ should be supported (L2 only)
+        idx = index_factory(self.d, "IVF32,PQ4")
+        from metalfaiss.index.ivf_pq_index import IVFPQIndex
+        self.assertIsInstance(idx, IVFPQIndex)
     
     def test_end_to_end_usage(self):
         """Test end-to-end usage of factory-created indexes."""

@@ -52,7 +52,7 @@ IndexPQFastScan             // Standalone FastScan PQ
 ```
 **Impact**: These provide 2-10x speedups over regular implementations
 
-#### 2. **Advanced Quantizers**
+#### 2. **Advanced Quantizers** 
 ```cpp
 // Missing quantization methods:
 IndexIVFPQR                 // PQ with residual quantization  
@@ -152,22 +152,14 @@ IndexPreTransform          // Preprocessing pipeline
 ### Metrics & Distance Functions
 
 #### 1. **Extended Metrics**
-```cpp
-// Missing distance metrics:
-METRIC_CANBERRA            // Canberra distance
-METRIC_BRAYCURTIS          // Bray-Curtis distance  
-METRIC_JENSENSHANNON       // Jensen-Shannon divergence
-// Plus variants and optimizations
-```
+Implemented in Python/MLX: Canberra, Bray–Curtis, Jensen–Shannon, L1, L∞, Jaccard. Optimizations/fused kernels TBD.
 
 ### Factory & String Interface
 
-#### 1. **Index Factory System**
+#### 1. **Index Factory System (Implemented)**
 ```cpp
-// Missing factory system:
 index_factory()            // String-based index creation
-index_binary_factory()     // Binary index factory
-reverse_index_factory()    // Index→string serialization
+reverse_factory()          // Index→string serialization (supported types)
 // String parsing for index descriptions like "IVF100,PQ8"
 ```
 
@@ -183,10 +175,7 @@ reverse_index_factory()    // Index→string serialization
 - `LocalSearchQuantizer`: Competitive alternative to PQ
 - These provide better accuracy/speed trade-offs
 
-### 3. **Factory System**
-- String-based index creation (`"IVF100,PQ8"`)
-- Critical for user-friendly API
-- Enables easy experimentation
+### 3. (Removed) Factory System — now implemented
 
 ### 4. **Extended Distance Metrics**
 - Canberra, Bray-Curtis, Jensen-Shannon
@@ -228,8 +217,8 @@ While we're missing features, our implementation has unique advantages:
 
 ### **Phase 1: Core Performance** (3-4 months)
 1. **FastScan PQ Implementation**: Adapt SIMD concepts to Metal
-2. **Factory System**: String-based index creation 
-3. **Extended Distance Metrics**: Add missing metrics
+2. **Factory System**: String-based index creation (initial subset implemented, incl. IVF+PQ)
+3. **Extended Distance Metrics**: Add missing metrics (implemented: Canberra, Bray–Curtis, Jensen–Shannon)
 4. **Range Search Improvements**: Better radius queries
 
 ### **Phase 2: Advanced Features** (4-6 months)  

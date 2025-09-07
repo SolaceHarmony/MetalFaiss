@@ -1,8 +1,8 @@
 # MetalFaiss
 
-MetalFaiss is a Python library that re-implements core FAISS functionalities using MLX for array operations and (optionally) Metal JIT for accelerated computation. It provides tools for efficient similarity search, clustering, and vector transformations while retaining a high-level, Pythonic API.
+MetalFaiss is a Python library that re-implements core FAISS functionalities using MLX for array operations and Metal acceleration on Apple Silicon. It provides tools for efficient similarity search, clustering, and vector transformations while retaining a high-level, Pythonic API.
 
-> **Note:** MetalFaiss is inspired by FAISS (Facebook AI Similarity Search) and reinterprets its core ideas using MLX (which leverages NumPy as its backend) and other modern Python idioms. It aims to be fast and flexible while using lazy evaluation and MLX's automatic optimizations.
+> **Note:** MetalFaiss is inspired by FAISS (Facebook AI Similarity Search) and reinterprets its core ideas using MLX on Apple Silicon. It aims to be fast and flexible while using lazy evaluation and MLX's automatic optimizations. There is no NumPy fallback.
 
 ## Features
 
@@ -16,7 +16,7 @@ MetalFaiss is a Python library that re-implements core FAISS functionalities usi
 - **Lazy Evaluation & JIT:**
   - Leverages MLX’s lazy evaluation and composable function transformations (e.g., automatic differentiation and vectorization).
 - **Extensible & Pythonic:**
-  - Uses MLX arrays (with NumPy as a backend) to provide a familiar interface, similar to NumPy's usage.
+  - Uses MLX arrays on Apple Silicon; no NumPy fallback.
 
 ## Installation
 
@@ -26,7 +26,7 @@ MetalFaiss is distributed as an editable package for development.
 
    ```bash
    git clone https://github.com/sydneyrenee/MetalFaiss.git
-   cd MetalFaiss/python/metalfaiss
+   cd MetalFaiss/python
 
 2. **Install in editable mode:**
    ```bash
@@ -65,10 +65,10 @@ print(search_result.labels)
 
 ## Running Tests:
 ```bash
-python -m unittest discover -s tests
+python -m unittest discover metalfaiss.unittest -v
 ```
 
-This will run all the tests in the `tests` directory and report the results.
+This runs the unit tests under `metalfaiss/unittest`.
 
 # Contributing
 
@@ -83,7 +83,7 @@ If you want to contribute to MetalFaiss, please follow these steps:
 Please ensure your code adheres to the project's coding standards and passes all tests before submitting a pull request.
 
 # License
-MetalFaiss is licensed under the MIT License. See the LICENSE file for more details.
+Licensed under the Apache License, Version 2.0. See the repository’s LICENSE.md for details.
 
 # Acknowledgments
 

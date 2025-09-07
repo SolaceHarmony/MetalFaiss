@@ -30,7 +30,7 @@ cd MetalFaiss/python
 pip install -e .
 ```
 
-### Install MLX (Optional, for Apple Silicon)
+### Install MLX (Required, Apple Silicon)
 
 ```bash
 pip install mlx
@@ -258,7 +258,7 @@ Contributions are welcome! Please feel free to submit pull requests or open issu
 
 ### Alternative: Direct Installation
 ```bash
-pip install mlx numpy  # Dependencies
+pip install mlx  # Dependency
 git clone https://github.com/SolaceHarmony/MetalFaiss.git
 cd MetalFaiss/python && pip install -e .
 ```
@@ -310,17 +310,17 @@ MetalFaiss/
 #### Basic Similarity Search
 ```python
 import metalfaiss
-import numpy as np  # or: import mlx.core as mx
+import mlx.core as mx
 
 # Create index
 index = metalfaiss.FlatIndex(d=128, metric_type=metalfaiss.MetricType.L2)
 
-# Add vectors
-vectors = np.random.normal(size=(1000, 128)).astype(np.float32)
+# Add vectors (MLX arrays)
+vectors = mx.random.normal(shape=(1000, 128)).astype(mx.float32)
 index.add(vectors)
 
 # Search
-query = np.random.normal(size=(1, 128)).astype(np.float32)
+query = mx.random.normal(shape=(1, 128)).astype(mx.float32)
 result = index.search(query, k=5)
 print(f"Distances: {result.distances}")
 print(f"Indices: {result.labels}")
@@ -337,13 +337,9 @@ except AttributeError:
     print("PCA transform not yet implemented")
 ```
 
-## 📈 Performance
+## 📈 Platform Support
 
-Metal FAISS is optimized for Apple Silicon but works on any platform:
-
-- **🚀 Apple Silicon**: Full Metal acceleration via MLX
-- **🖥️ Intel/AMD**: NumPy fallback, still efficient
-- **☁️ Cloud/Linux**: Compatible with standard Python environments
+MetalFaiss is MLX‑only and targets Apple Silicon with Metal acceleration. No NumPy fallback is provided.
 
 ## 🤝 Contributing
 
@@ -381,7 +377,7 @@ Thanks to all contributors who have helped build Metal FAISS:
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md) file for details.
+Licensed under the Apache License, Version 2.0 — see [LICENSE.md](LICENSE.md).
 
 ## 🙏 Acknowledgments
 
