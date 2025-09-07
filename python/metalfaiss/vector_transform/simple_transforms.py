@@ -198,11 +198,14 @@ class NormalizationTransform(BaseVectorTransform):
             xt: Output buffer (n, d)
         """
         # Compute norms
-        norms = mx.sum(mx.abs(x) ** self.norm, axis=1) ** (1.0 / self.norm)
-        norms = mx.maximum(norms, 1e-10)  # Avoid division by 0
-        
+        p = mx.array(self.norm, dtype=x.dtype)
+        absx = mx.abs(x)
+        norms = mx.sum(mx.power(absx, p), axis=1)
+        invp = mx.divide(mx.array(1.0, dtype=x.dtype), p)
+        norms = mx.power(norms, invp)
+        norms = mx.maximum(norms, mx.array(1e-10, dtype=x.dtype))  # Avoid division by 0
         # Normalize
-        xt[:] = x / norms.reshape(-1, 1)
+        xt[:] = mx.divide(x, norms.reshape(-1, 1))
         
     def reverse_transform(self, xs: List[List[float]]) -> List[List[float]]:
         """Reverse transform (identity since norm is lost).

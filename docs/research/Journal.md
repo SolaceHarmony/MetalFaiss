@@ -6,6 +6,61 @@ Entries follow a simple structure: Context → Method → Results → Analysis �
 
 ---
 
+## 2025‑09‑07 · Pure‑MLX purge + Compile pass + benches/docs
+
+- Context:
+  - Finish the “no Python math, no host scalars, no NumPy” contract across hot paths; keep arrays device‑resident for MLX/Metal.
+  - Integrate `mx.compile` where it materially reduces Python overhead (MLX SVD step, kernel wrapper) and document usage so future runs reload context quickly.
+  - Re‑bench everything and auto‑archive previous results for diffs.
+
+- Method:
+  - Purge CPU math/operators in core modules:
+    - Replaced `*`, `/`, and `**2` on MLX arrays with `mx.multiply`, `mx.divide`, `mx.square`, `mx.add`, `mx.subtract`, `mx.power`.
+    - Built constants as MLX scalars (`mx.array(1.0)`, `mx.ones_like`, `mx.zeros_like`); created `+inf` via `mx.divide(ones, zeros)`.
+    - Removed `.tolist()`/`.numpy()` conversions in IVFFlat/ScalarQuantizer/IVFPQ returns; now return pure MLX arrays in `SearchResult`.
+  - Kernels:
+    - QR SIMD reduction uses `simd_sum` (warp‑level) instead of TG scratch.
+    - IVF chunked path now device‑side merge only.
+  - Compile:
+    - Added compiled MLX SVD step `Z=Aᵀ(A V)`→`QR(Z)` cached by (m,n,k,dtype,device).
+    - Added compiled kernel Z‑step wrapper (AV→AᵀB and banded) to trim Python overhead.
+  - Benches:
+    - Bench runner now archives prior CSV/PNG/JSON/MD to `docs/benchmarks/archive/<ts>`.
+    - Added `svd_compile.csv/png` comparing MLX compile vs non‑compile and kernel wrapper compile vs non‑compile.
+  - Docs:
+    - New `docs/mlx/Compile-Guide.md` (patterns, shapeless caveats, mixed CPU/GPU within compile).
+    - Linked compile guidance inside `Comprehensive-MLX-Metal-Guide.md`.
+
+- Results (this box):
+  - Purge effect (current vs archived):
+    - QR MLX dot: ~2.68× faster; Kernel simple: ~1.42× faster; SIMD slight regression (simd_sum swap) at this shape.
+    - IVF: Baseline and fused both ~1.16–1.18× faster; Batched sameX ~unchanged (~1.5 ms).
+    - Orthogonality: ~unchanged (≤1%).
+  - Compile:
+    - SVD MLX step (512×256, k=32, iters=3): ~1.6× faster with compile.
+    - SVD kernel wrapper: ~parity (kernels dominate runtime, compile trims little).
+
+- Analysis:
+  - Eliminating host conversions and Python operators lets MLX fuse elementwise chains and keep work on GPU; compile then magnifies wins on MLX‑heavy steps.
+  - Kernel orchestration benefits less from compile unless many small calls are driven per step; wrappers still remove interpreter overhead for banded/streamed variants.
+  - The QR SIMD micro‑regression suggests gating `simd_sum` by size (keep SIMD for large m; use simple for small).
+
+- Next Steps:
+  - Finish purge in legacy indexes/transforms (HNSW, PCA, demo_utils) and remove remaining Python floats/`float('inf')`/operator math.
+  - Gate QR SIMD vs simple by heuristic or env; add microbench to capture breakpoint.
+  - Add compiled QR two‑pass driver (fixed m,k) and measure.
+  - Export `Compile-Guide.md` into curated knowledgebase at `/Volumes/emberstuff/Projects/magentic-codex/codex-cli/agent_knowledgebase/mlx/` so other agents inherit patterns.
+  - Extend bench dashboard with compile vs non‑compile panels and env/report of kernel flags/tiles.
+
+- Notes (dense / 50FD):
+  - MLX‑ops only: square/divide/multiply/add/subtract/power; sqrt via mx; constants = MLX scalars; +inf = ones/zeros divide.
+  - No host pulls: no `.item/.tolist/.numpy/float` in hot paths; SearchResult returns MLX.
+  - Compile: cache by (m,n,k,dtype,device); shapeless only for shape‑agnostic code; nest compile on outer fn.
+  - Unified mem: safe to mix CPU/GPU in compiled graphs via streams; MLX orders deps.
+  - Bench: auto‑archive; svd_compile metric added; compare deltas for regressions.
+
+---
+
 ## 2025‑09‑06 · Baselines + Kernel Contract Fixes
 
 - Context:
