@@ -142,9 +142,10 @@ def topk_svd(
     # Ritz values/vectors: compute U = A V, then singular values as norms
     AV = mx.matmul(A, V)    # (m, k)
     # Column norms for singular values
-    s = mx.sqrt(mx.sum(AV * AV, axis=0))  # (k,)
-    # Avoid div by zero
-    inv = mx.where(s > 0, 1.0 / s, 0.0)
-    U = AV * inv.reshape((1, -1))
+    s = mx.sqrt(mx.sum(mx.square(AV), axis=0))  # (k,)
+    # Avoid div by zero via ones/s
+    ones = mx.ones_like(s)
+    inv = mx.where(s > 0, mx.divide(ones, s), mx.zeros_like(s))
+    U = mx.multiply(AV, inv.reshape((1, -1)))
     Vt = mx.transpose(V)
     return U, s, Vt

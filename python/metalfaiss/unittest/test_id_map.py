@@ -10,7 +10,6 @@ particularly around:
 """
 
 import unittest
-import numpy as np
 import mlx.core as mx
 from typing import List
 from ..index.id_map import IDMap, IDMap2, IDSelectorTranslated
@@ -23,14 +22,12 @@ class TestIDMap(unittest.TestCase):
     
     def setUp(self):
         """Create test data."""
-        np.random.seed(42)
+        # MLX-only random vectors
         self.d = 8  # Dimension
         self.n = 100  # Number of vectors
         
         # Create random vectors and IDs
-        self.vectors = mx.array(
-            np.random.randn(self.n, self.d).astype(np.float32)
-        )
+        self.vectors = mx.random.normal(shape=(self.n, self.d)).astype(mx.float32)
         self.ids = list(range(1000, 1000 + self.n))  # External IDs
         
         # Create base index
@@ -132,13 +129,11 @@ class TestIDMap2(unittest.TestCase):
     
     def setUp(self):
         """Create test data."""
-        np.random.seed(42)
+        # MLX-only random vectors
         self.d = 8
         self.n = 100
         
-        self.vectors = mx.array(
-            np.random.randn(self.n, self.d).astype(np.float32)
-        )
+        self.vectors = mx.random.normal(shape=(self.n, self.d)).astype(mx.float32)
         self.ids = list(range(1000, 1000 + self.n))
         
         self.base_index = FlatIndex(self.d)
@@ -173,10 +168,7 @@ class TestIDMap2(unittest.TestCase):
         # Reconstruct each vector
         for i, id in enumerate(self.ids):
             reconstructed = self.index.reconstruct(id)
-            np.testing.assert_array_almost_equal(
-                reconstructed,
-                self.vectors[i].tolist()
-            )
+            self.assertEqual([round(v, 6) for v in reconstructed], [round(v, 6) for v in self.vectors[i].tolist()])
             
         # Try invalid ID
         with self.assertRaises(KeyError):
@@ -203,10 +195,7 @@ class TestIDMap2(unittest.TestCase):
         for id in self.index.id_map:
             reconstructed = self.index.reconstruct(id)
             original_idx = self.ids.index(id)
-            np.testing.assert_array_almost_equal(
-                reconstructed,
-                self.vectors[original_idx].tolist()
-            )
+            self.assertEqual([round(v, 6) for v in reconstructed], [round(v, 6) for v in self.vectors[original_idx].tolist()])
             
     def test_consistency_check(self):
         """Test consistency checking."""

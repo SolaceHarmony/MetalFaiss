@@ -6,16 +6,14 @@ its inverted list structure and search behavior.
 """
 
 import unittest
-import numpy as np
 import mlx.core as mx
 from typing import List, Tuple
 from ..index.binary_ivf_index import BinaryIVFIndex
 from ..index.binary_flat_index import BinaryFlatIndex
 
-def generate_binary_vectors(n: int, d: int, seed: int = 42) -> List[List[int]]:
+def generate_binary_vectors(n: int, d: int) -> List[List[int]]:
     """Generate random binary vectors."""
-    np.random.seed(seed)
-    return np.random.randint(0, 2, (n, d)).tolist()
+    return mx.random.randint(0, 2, shape=(n, d), dtype=mx.uint8).tolist()
 
 def hamming_distance(x: List[int], y: List[int]) -> int:
     """Compute Hamming distance between binary vectors."""
@@ -32,11 +30,10 @@ class TestBinaryIVFIndex(unittest.TestCase):
         
         # Create vectors with some structure
         # Half the vectors are closer to 0s, half closer to 1s
-        np.random.seed(42)
         n_half = self.n // 2
-        zeros = np.random.binomial(1, 0.2, (n_half, self.d))  # Mostly zeros
-        ones = np.random.binomial(1, 0.8, (n_half, self.d))   # Mostly ones
-        self.vectors = np.vstack([zeros, ones]).tolist()
+        zeros = mx.random.randint(0, 2, shape=(n_half, self.d), dtype=mx.uint8).tolist()
+        ones = mx.random.randint(0, 2, shape=(n_half, self.d), dtype=mx.uint8).tolist()
+        self.vectors = zeros + ones
         
         # Create quantizer and index
         self.quantizer = BinaryFlatIndex(self.d)
@@ -101,7 +98,7 @@ class TestBinaryIVFIndex(unittest.TestCase):
         self.assertTrue(all(s > 0 for s in list_sizes))  # No empty lists
         
         # Add with IDs
-        more_vectors = generate_binary_vectors(10, self.d, seed=43)
+        more_vectors = generate_binary_vectors(10, self.d)
         ids = list(range(100, 110))
         self.index.add(more_vectors, ids)
         
@@ -126,7 +123,7 @@ class TestBinaryIVFIndex(unittest.TestCase):
         self.assertEqual(result.distances[0][0], 0)  # Exact match
         
         # Search with k=5 and different nprobe values
-        query = generate_binary_vectors(1, self.d, seed=44)[0]
+        query = generate_binary_vectors(1, self.d)[0]
         k = 5
         
         for nprobe in [1, 2, 5, self.nlist]:

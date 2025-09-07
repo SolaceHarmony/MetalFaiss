@@ -7,7 +7,6 @@ characteristics.
 """
 
 import unittest
-import numpy as np
 import mlx.core as mx
 from typing import List, Tuple
 from ..faissmlx.gpu_kernels import (
@@ -48,6 +47,9 @@ class TestKernelConfig(unittest.TestCase):
         self.assertEqual(config.max_shared_memory, 32 * 1024)
         self.assertEqual(config.warp_size, 16)
 
+from .mlx_test_utils import assert_allclose, assert_array_equal, randn, randint
+
+
 class TestMatrixKernels(unittest.TestCase):
     """Test matrix operation kernels."""
     
@@ -56,42 +58,28 @@ class TestMatrixKernels(unittest.TestCase):
         self.config = KernelConfig()
         
         # Create test matrices
-        np.random.seed(42)
-        self.a = mx.array(np.random.randn(3, 4))
-        self.b = mx.array(np.random.randn(4, 5))
-        
+        self.a = mx.random.normal(shape=(3, 4))
+        self.b = mx.random.normal(shape=(4, 5))
         # Batched matrices
-        self.batch_a = mx.array(np.random.randn(2, 3, 4))
-        self.batch_b = mx.array(np.random.randn(2, 4, 5))
+        self.batch_a = mx.random.normal(shape=(2, 3, 4))
+        self.batch_b = mx.random.normal(shape=(2, 4, 5))
         
     def test_batched_matmul(self):
         """Test batched matrix multiplication."""
         result = batched_matmul(self.batch_a, self.batch_b, self.config)
         
-        # Compare with numpy batch matmul
-        expected = np.matmul(
-            self.batch_a.numpy(),
-            self.batch_b.numpy()
-        )
-        np.testing.assert_array_almost_equal(
-            result.numpy(),
-            expected
-        )
+        # Compare with MLX matmul
+        expected = mx.matmul(self.batch_a, self.batch_b)
+        assert_allclose(result, expected)
         
     def test_strided_matmul(self):
         """Test strided matrix multiplication."""
         stride = 2
         result = strided_matmul(self.a, self.b, stride, self.config)
         
-        # Compare with numpy strided computation
-        expected = np.matmul(
-            self.a.numpy()[::stride],
-            self.b.numpy()
-        )
-        np.testing.assert_array_almost_equal(
-            result.numpy(),
-            expected
-        )
+        # Compare with MLX strided computation
+        expected = mx.matmul(self.a[::stride], self.b)
+        assert_allclose(result, expected)
 
 class TestDistanceKernels(unittest.TestCase):
     """Test distance computation kernels."""
@@ -101,49 +89,31 @@ class TestDistanceKernels(unittest.TestCase):
         self.config = KernelConfig()
         
         # Create test vectors
-        np.random.seed(42)
-        self.x = mx.array(np.random.randn(10, 8))
-        self.y = mx.array(np.random.randn(15, 8))
-        
+        self.x = mx.random.normal(shape=(10, 8))
+        self.y = mx.random.normal(shape=(15, 8))
         # Binary vectors
-        self.x_bin = mx.array(
-            np.random.randint(0, 2, (10, 8)),
-            dtype=mx.uint8
-        )
-        self.y_bin = mx.array(
-            np.random.randint(0, 2, (15, 8)),
-            dtype=mx.uint8
-        )
+        self.x_bin = mx.random.randint(0, 2, shape=(10, 8), dtype=mx.uint8)
+        self.y_bin = mx.random.randint(0, 2, shape=(15, 8), dtype=mx.uint8)
         
     def test_l2_distance(self):
         """Test L2 distance computation."""
         result = l2_distance_kernel(self.x, self.y, self.config)
         
-        # Compare with numpy computation
-        x_np = self.x.numpy()
-        y_np = self.y.numpy()
-        expected = np.sum(x_np**2, axis=1)[:, None] + \
-                  np.sum(y_np**2, axis=1) - \
-                  2 * np.dot(x_np, y_np.T)
-        np.testing.assert_array_almost_equal(
-            result.numpy(),
-            expected
-        )
+        # Compare with MLX computation
+        x_norms = mx.sum(self.x * self.x, axis=1, keepdims=True)
+        y_norms = mx.sum(self.y * self.y, axis=1)
+        expected = x_norms + y_norms[None, :] - 2 * mx.matmul(self.x, self.y.T)
+        assert_allclose(result, expected)
         
     def test_cosine_distance(self):
         """Test cosine distance computation."""
         result = cosine_distance_kernel(self.x, self.y, self.config)
         
-        # Compare with numpy computation
-        x_np = self.x.numpy()
-        y_np = self.y.numpy()
-        x_norm = np.sqrt(np.sum(x_np**2, axis=1))[:, None]
-        y_norm = np.sqrt(np.sum(y_np**2, axis=1))[None, :]
-        expected = 1 - np.dot(x_np, y_np.T) / (x_norm * y_norm)
-        np.testing.assert_array_almost_equal(
-            result.numpy(),
-            expected
-        )
+        # Compare with MLX computation
+        x_norm = mx.sqrt(mx.sum(self.x * self.x, axis=1, keepdims=True))
+        y_norm = mx.sqrt(mx.sum(self.y * self.y, axis=1, keepdims=True)).T
+        expected = 1.0 - mx.matmul(self.x, self.y.T) / (x_norm * y_norm)
+        assert_allclose(result, expected)
         
     def test_hamming_distance(self):
         """Test Hamming distance computation."""
@@ -153,17 +123,15 @@ class TestDistanceKernels(unittest.TestCase):
             self.config
         )
         
-        # Compare with numpy computation
-        x_np = self.x_bin.numpy()
-        y_np = self.y_bin.numpy()
-        expected = np.zeros((len(x_np), len(y_np)), dtype=np.uint32)
-        for i in range(len(x_np)):
-            for j in range(len(y_np)):
-                expected[i, j] = np.sum(x_np[i] != y_np[j])
-        np.testing.assert_array_equal(
-            result.numpy(),
-            expected
-        )
+        # Compare with MLX computation
+        expected = mx.zeros((self.x_bin.shape[0], self.y_bin.shape[0]), dtype=mx.uint32)
+        for i in range(int(self.x_bin.shape[0])):
+            xi = self.x_bin[i]
+            # broadcast compare and sum across axis 1
+            diffs = mx.not_equal(xi[None, :], self.y_bin)  # (nb, d)
+            counts = mx.sum(diffs, axis=1)
+            expected[:, i] = counts  # fill column-wise
+        assert_array_equal(result, expected.T)
 
 class TestBinaryKernels(unittest.TestCase):
     """Test binary operation kernels."""
@@ -180,40 +148,26 @@ class TestBinaryKernels(unittest.TestCase):
         """Test binary operations."""
         # AND
         result = binary_and_kernel(self.x, self.y, self.config)
-        np.testing.assert_array_equal(
-            result.numpy(),
-            np.array([0b1000, 0b1000], dtype=np.uint8)
-        )
+        assert_array_equal(result, mx.array([0b1000, 0b1000], dtype=mx.uint8))
         
         # OR
         result = binary_or_kernel(self.x, self.y, self.config)
-        np.testing.assert_array_equal(
-            result.numpy(),
-            np.array([0b1110, 0b1110], dtype=np.uint8)
-        )
+        assert_array_equal(result, mx.array([0b1110, 0b1110], dtype=mx.uint8))
         
         # XOR
         result = binary_xor_kernel(self.x, self.y, self.config)
-        np.testing.assert_array_equal(
-            result.numpy(),
-            np.array([0b0110, 0b0110], dtype=np.uint8)
-        )
+        assert_array_equal(result, mx.array([0b0110, 0b0110], dtype=mx.uint8))
         
     def test_binary_hamming(self):
         """Test binary Hamming weight computation."""
         result = binary_hamming_kernel(self.x, self.y, self.config)
         
-        # Compare with numpy computation
-        x_np = self.x.numpy()
-        y_np = self.y.numpy()
-        expected = np.zeros((len(x_np), len(y_np)), dtype=np.uint32)
-        for i in range(len(x_np)):
-            for j in range(len(y_np)):
-                expected[i, j] = bin(x_np[i] ^ y_np[j]).count('1')
-        np.testing.assert_array_equal(
-            result.numpy(),
-            expected
-        )
+        # Compare with MLX computation
+        expected = mx.zeros((self.x.shape[0], self.y.shape[0]), dtype=mx.uint32)
+        for i in range(int(self.x.shape[0])):
+            for j in range(int(self.y.shape[0])):
+                expected[i, j] = int(bin(int(self.x[i].item()) ^ int(self.y[j].item())).count('1'))
+        assert_array_equal(result, expected)
 
 class TestMemoryKernels(unittest.TestCase):
     """Test memory management kernels."""
@@ -228,10 +182,7 @@ class TestMemoryKernels(unittest.TestCase):
         dst = mx.zeros_like(src)
         
         memcpy_kernel(dst, src, self.config)
-        np.testing.assert_array_equal(
-            dst.numpy(),
-            src.numpy()
-        )
+        assert_array_equal(dst, src)
         
     def test_memset(self):
         """Test memory set."""
@@ -239,10 +190,7 @@ class TestMemoryKernels(unittest.TestCase):
         value = 42
         
         memset_kernel(arr, value, self.config)
-        np.testing.assert_array_equal(
-            arr.numpy(),
-            np.full(5, value)
-        )
+        assert_array_equal(arr, mx.full((5,), value))
 
 class TestUtilityKernels(unittest.TestCase):
     """Test utility kernels."""
@@ -257,14 +205,11 @@ class TestUtilityKernels(unittest.TestCase):
         
         # Total sum
         result = reduce_sum_kernel(x, None, self.config)
-        self.assertEqual(float(result), 21)
+        self.assertEqual(float(result), 21.0)
         
         # Sum along axis
         result = reduce_sum_kernel(x, 0, self.config)
-        np.testing.assert_array_equal(
-            result.numpy(),
-            [5, 7, 9]
-        )
+        assert_array_equal(result, mx.array([5, 7, 9]))
         
     def test_scan(self):
         """Test parallel scan."""
@@ -272,17 +217,11 @@ class TestUtilityKernels(unittest.TestCase):
         
         # Inclusive scan
         result = scan_kernel(x, True, self.config)
-        np.testing.assert_array_equal(
-            result.numpy(),
-            [1, 3, 6, 10]
-        )
+        assert_array_equal(result, mx.array([1, 3, 6, 10]))
         
         # Exclusive scan
         result = scan_kernel(x, False, self.config)
-        np.testing.assert_array_equal(
-            result.numpy(),
-            [0, 1, 3, 6]
-        )
+        assert_array_equal(result, mx.array([0, 1, 3, 6]))
 
 if __name__ == '__main__':
     unittest.main()

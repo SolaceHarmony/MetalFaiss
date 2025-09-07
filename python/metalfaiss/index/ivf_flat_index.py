@@ -111,8 +111,8 @@ class IVFFlatIndex(BaseIndex):
         coarse_dists, coarse_labels = self._quantizer.search(xs, self.nprobe)
         
         # Search within selected lists
-        distances = []
-        labels = []
+        out_vals: list[mx.array] = []
+        out_ids: list[mx.array] = []
         for query, probe_labels in zip(x, coarse_labels):
             probe_vectors = []
             probe_ids = []
@@ -124,8 +124,9 @@ class IVFFlatIndex(BaseIndex):
                     probe_ids.append(vid)
 
             if not probe_vectors:
-                distances.append([float('inf')] * k)
-                labels.append([0] * k)
+                infv = mx.divide(mx.ones((k,), dtype=mx.float32), mx.zeros((k,), dtype=mx.float32))
+                out_vals.append(infv)
+                out_ids.append(mx.zeros((k,), dtype=mx.int32))
                 continue
 
             probe_vectors = mx.stack(probe_vectors)
@@ -135,10 +136,12 @@ class IVFFlatIndex(BaseIndex):
             if self.metric_type != MetricType.L2 or ivf_list_topk_l2 is None:
                 raise RuntimeError("IVFFlatIndex: production path expects L2 and fused kernel available")
             vals, oks = ivf_list_topk_l2(query, probe_vectors, ids_arr, k)
-            distances.append(vals.tolist())
-            labels.append(oks.tolist())
-            
-        return SearchResult(distances=distances, labels=labels)
+            out_vals.append(vals)
+            out_ids.append(oks)
+
+        D = mx.stack(out_vals) if out_vals else mx.zeros((len(x), k), dtype=mx.float32)
+        I = mx.stack(out_ids) if out_ids else mx.zeros((len(x), k), dtype=mx.int32)
+        return SearchResult(distances=D, indices=I)
         
     def reset(self) -> None:
         """Reset the index."""

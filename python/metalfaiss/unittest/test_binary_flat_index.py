@@ -3,7 +3,6 @@ test_binary_flat_index.py - Tests for binary flat index
 """
 
 import unittest
-import numpy as np
 import mlx.core as mx
 from typing import List, Optional, Tuple
 
@@ -19,11 +18,7 @@ class TestBinaryFlatIndex(unittest.TestCase):
         """Set up test data."""
         self.d = 64  # Must be multiple of 8
         self.n = 100
-        np.random.seed(42)
-        self.x = mx.array(
-            np.random.randint(0, 2, (self.n, self.d)),
-            dtype=np.uint8
-        )
+        self.x = mx.random.randint(0, 2, shape=(self.n, self.d), dtype=mx.uint8)
         
     def test_flat_index(self):
         """Test flat index basics."""
@@ -90,12 +85,12 @@ class TestBinaryFlatIndex(unittest.TestCase):
         
         # Single vector
         x_rec = index.reconstruct(0)
-        np.testing.assert_array_equal(x_rec, self.x[0:1])
+        self.assertTrue(mx.all(x_rec == self.x[0:1]))
         
         # Multiple vectors
         idx = mx.array([0, 2, 4])
         x_rec = index.reconstruct(idx)
-        np.testing.assert_array_equal(x_rec, self.x[idx])
+        self.assertTrue(mx.all(x_rec == self.x[idx]))
         
         # Out of bounds
         with self.assertRaises(ValueError):

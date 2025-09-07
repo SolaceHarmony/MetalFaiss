@@ -38,8 +38,9 @@ def complete_basis(Q: mx.array) -> mx.array:
         v = v - mx.matmul(R, c1)
         c2 = mx.matmul(mx.transpose(R), v)
         v = v - mx.matmul(R, c2)
-        nrm = mx.sqrt(mx.sum(v * v))
-        u = v / mx.where(nrm > 0, nrm, 1)
+        nrm = mx.sqrt(mx.sum(mx.square(v)))
+        denom = mx.where(nrm > 0, nrm, mx.ones_like(nrm))
+        u = mx.divide(v, denom)
         R = mx.concatenate([R, u.reshape((m, 1))], axis=1)
     return R
 
@@ -60,7 +61,8 @@ def orthogonal(shape, gain: float = 1.0) -> mx.array:
     W = mx.random.normal(shape=(size, size)).astype(mx.float32)
     Q, _ = pure_mlx_qr(W)
     Qblock = Q[:rows, :cols]
-    return gain * Qblock.reshape(shp)
+    g = mx.array(gain, dtype=Qblock.dtype)
+    return mx.multiply(g, Qblock.reshape(shp))
 
 
 def orthogonalize_blocked(A: mx.array, B: int = 32) -> mx.array:
@@ -83,7 +85,7 @@ def orthogonalize_blocked(A: mx.array, B: int = 32) -> mx.array:
                 v = v - mx.matmul(Qprev, c1)
                 c2 = mx.matmul(mx.transpose(Qprev), v)
                 v = v - mx.matmul(Qprev, c2)
-            nrm = mx.sqrt(mx.sum(v * v))
-            Q[:, j] = v / mx.where(nrm > 0, nrm, 1)
+            nrm = mx.sqrt(mx.sum(mx.square(v)))
+            denom = mx.where(nrm > 0, nrm, mx.ones_like(nrm))
+            Q[:, j] = mx.divide(v, denom)
     return Q
-

@@ -3,7 +3,6 @@ test_binary_transform.py - Tests for binary vector transforms
 """
 
 import unittest
-import numpy as np
 import mlx.core as mx
 from typing import List, Optional, Tuple
 
@@ -20,11 +19,7 @@ class TestBinaryTransform(unittest.TestCase):
         """Set up test data."""
         self.d = 64  # Must be multiple of 8
         self.n = 100
-        np.random.seed(42)
-        self.x = mx.array(
-            np.random.randint(0, 2, (self.n, self.d)),
-            dtype=np.uint8
-        )
+        self.x = mx.random.randint(0, 2, shape=(self.n, self.d), dtype=mx.uint8)
         
     def test_base_transform(self):
         """Test base binary transform."""
@@ -60,7 +55,7 @@ class TestBinaryTransform(unittest.TestCase):
         
         # Test inverse transform
         x_rec = transform.reverse_transform(y)
-        np.testing.assert_array_equal(x_rec, self.x)
+        self.assertTrue(mx.all(x_rec == self.x))
         
     def test_matrix_transform(self):
         """Test binary matrix transform."""
@@ -74,7 +69,7 @@ class TestBinaryTransform(unittest.TestCase):
         
         # Test matrix shape
         self.assertEqual(transform.matrix.shape, (self.d, self.d))
-        self.assertEqual(transform.matrix.dtype, np.uint8)
+        self.assertEqual(transform.matrix.dtype, mx.uint8)
         
         # Test forward transform
         y = transform.apply(self.x)
@@ -124,12 +119,12 @@ class TestBinaryTransform(unittest.TestCase):
         transform.train(self.x)
         
         # Wrong input dimension
-        x_wrong = mx.array(np.random.randint(0, 2, (10, self.d + 8)))
+        x_wrong = mx.random.randint(0, 2, shape=(10, self.d + 8))
         with self.assertRaises(ValueError):
             transform.apply(x_wrong)
             
         # Wrong output dimension
-        y_wrong = mx.array(np.random.randint(0, 2, (10, self.d + 8)))
+        y_wrong = mx.random.randint(0, 2, shape=(10, self.d + 8))
         with self.assertRaises(ValueError):
             transform.reverse_transform(y_wrong)
 

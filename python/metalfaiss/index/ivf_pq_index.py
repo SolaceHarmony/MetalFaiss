@@ -107,7 +107,7 @@ class IVFPQIndex(BaseIndex):
         codes = self._pq.compute_codes(residuals)
         # Store per list
         for i in range(n):
-            lid = int(labels[i].item())
+            lid = int(labels[i])
             vid = ids[i] if ids is not None else (self.ntotal + i)
             self._codes[lid].append((int(vid), codes[i]))
         self.ntotal += n
@@ -136,36 +136,47 @@ class IVFPQIndex(BaseIndex):
         for i in range(nq):
             q = xq[i]
             # Coarse probe
-            d2 = mx.sum((self._centroids - q[None, :]) ** 2, axis=1)
+            d2 = mx.sum((self._centroids - q[None, :]) * (self._centroids - q[None, :]), axis=1)
             probe = mx.argsort(d2)[: self._nprobe].tolist()
-            # ADC LUT for each list depends on q residual vs that list centroid
-            cand_vals = []
-            cand_ids = []
+            # Accumulate candidates in MLX
+            vals_accum: Optional[mx.array] = None
+            ids_accum: Optional[mx.array] = None
             for lid in probe:
                 lid_int = int(lid)
-                if not self._codes[lid_int]:
+                codes_list = self._codes[lid_int]
+                if not codes_list:
                     continue
                 qres = q - self._centroids[lid_int]
-                lut = self._adc_lut(qres)
-                # Score each code in list
-                for vid, code in self._codes[lid_int]:
-                    # sum lut[m, code[m]] over m
-                    s = 0.0
-                    for m in range(self._pq.M):
-                        s += float(lut[m, int(code[m].item())].item())
-                    cand_vals.append(s)
-                    cand_ids.append(vid)
-            if not cand_vals:
+                lut = self._adc_lut(qres)  # (M, ksub)
+                # Stack codes and ids for this list
+                ids_arr = mx.array([vid for (vid, _c) in codes_list], dtype=mx.int32)
+                codes_mat = mx.stack([_c for (_vid, _c) in codes_list], axis=0)  # (L, M)
+                L = int(codes_mat.shape[0])
+                M = self._pq.M
+                # Sum over subquantizers via gather
+                scores = mx.zeros((L,), dtype=mx.float32)
+                for m in range(M):
+                    idx_m = codes_mat[:, m]
+                    vals_m = lut[m][idx_m]
+                    scores = scores + vals_m
+                if vals_accum is None:
+                    vals_accum = scores
+                    ids_accum = ids_arr
+                else:
+                    vals_accum = mx.concatenate([vals_accum, scores], axis=0)
+                    ids_accum = mx.concatenate([ids_accum, ids_arr], axis=0)
+            if vals_accum is None or ids_accum is None or int(vals_accum.shape[0]) == 0:
                 all_dists.append([float('inf')] * k)
                 all_ids.append([0] * k)
                 continue
-            # Take top-k (smallest distances)
-            import numpy as _np
-            arr = _np.array(cand_vals)
-            idx = _np.argpartition(arr, min(k, len(arr) - 1))[:k]
-            sel = idx[_np.argsort(arr[idx])]
-            all_dists.append([cand_vals[j] for j in sel])
-            all_ids.append([cand_ids[j] for j in sel])
+            # Top-k smallest via negative + topk
+            kk = k if k <= int(vals_accum.shape[0]) else int(vals_accum.shape[0])
+            neg = -vals_accum
+            topv, topi = mx.topk(neg, kk, axis=0)
+            sel_ids = ids_accum[topi]
+            sel_vals = -topv
+            all_dists.append(sel_vals.tolist())
+            all_ids.append(sel_ids.tolist())
         return SearchResult(distances=all_dists, labels=all_ids)
 
     def reset(self) -> None:
@@ -173,4 +184,3 @@ class IVFPQIndex(BaseIndex):
         self._codes = [[] for _ in range(self._nlist)]
         self._centroids = None
         self._quantizer.reset()
-

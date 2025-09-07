@@ -74,7 +74,6 @@ def kahan_sum(x: mx.array) -> mx.array:
 
 def safe_norm2(x: mx.array, eps: float = 0.0) -> mx.array:
     """Robust squared norm v^T v with optional epsilon clamp (MLX scalar)."""
-    v2 = mx.sum(x * x)
-    if eps > 0.0:
-        v2 = mx.maximum(v2, mx.array(eps, dtype=x.dtype))
-    return v2
+    v2 = mx.sum(mx.square(x))
+    # Always apply clamp via MLX; eps may be 0 which is a no-op
+    return mx.maximum(v2, mx.array(eps, dtype=x.dtype))

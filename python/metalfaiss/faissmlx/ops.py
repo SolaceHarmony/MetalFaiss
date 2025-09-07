@@ -14,7 +14,6 @@ Operations are organized into categories:
 """
 
 import mlx.core as mx
-import numpy as np
 from typing import List, Tuple, Union, Optional
 from enum import Enum
 
@@ -26,7 +25,7 @@ class Device(Enum):
 # Array Creation and Manipulation Ops
 
 def array(
-    data: Union[List, np.ndarray],
+    data: Union[List, mx.array],
     dtype: Optional[str] = None,
     device: Device = Device.CPU
 ) -> mx.array:
@@ -151,11 +150,12 @@ def l2_distances(x: mx.array, y: mx.array) -> mx.array:
     Returns:
         Distance matrix (n, m)
     """
-    # Compute (a-b)^2 = a^2 + b^2 - 2ab
-    xx = sum(x * x, axis=1, keepdims=True)  # (n, 1)
-    yy = sum(y * y, axis=1)  # (m,)
-    xy = matmul(x, transpose(y))  # (n, m)
-    return xx + yy - 2 * xy
+    # Compute (a-b)^2 = a^2 + b^2 - 2ab (pure MLX ops)
+    xx = sum(mx.square(x), axis=1, keepdims=True)  # (n, 1)
+    yy = sum(mx.square(y), axis=1)                 # (m,)
+    xy = matmul(x, transpose(y))                  # (n, m)
+    xy2 = mx.add(xy, xy)
+    return mx.subtract(mx.add(xx, yy), xy2)
 
 def cosine_distances(x: mx.array, y: mx.array) -> mx.array:
     """Compute pairwise cosine distances.
@@ -167,14 +167,14 @@ def cosine_distances(x: mx.array, y: mx.array) -> mx.array:
     Returns:
         Distance matrix (n, m)
     """
-    # Normalize vectors
-    x_norm = sum(x * x, axis=1, keepdims=True) ** 0.5
-    y_norm = sum(y * y, axis=1, keepdims=True) ** 0.5
-    x = x / x_norm
-    y = y / y_norm
-    
-    # Compute 1 - cos(theta) = 1 - x·y
-    return 1 - matmul(x, transpose(y))
+    # Normalize vectors (no python ops)
+    x_norm = mx.sqrt(sum(mx.square(x), axis=1, keepdims=True))
+    y_norm = mx.sqrt(sum(mx.square(y), axis=1, keepdims=True))
+    x = mx.divide(x, x_norm)
+    y = mx.divide(y, y_norm)
+    # Compute 1 - cos(theta)
+    dot = matmul(x, transpose(y))
+    return mx.subtract(mx.ones_like(dot), dot)
 
 def hamming_distances(x: mx.array, y: mx.array) -> mx.array:
     """Compute pairwise Hamming distances.
@@ -186,11 +186,9 @@ def hamming_distances(x: mx.array, y: mx.array) -> mx.array:
     Returns:
         Distance matrix (n, m) of uint32
     """
-    # Create lookup table for Hamming weight
-    table = np.zeros(256, dtype=np.uint8)
-    for i in range(256):
-        table[i] = bin(i).count('1')
-    table = array(table, dtype="uint8")
+    # Create lookup table for Hamming weight (pure MLX construction)
+    table_py = [bin(i).count('1') for i in range(256)]
+    table = mx.array(table_py, dtype=mx.uint8)
     
     # Compute XOR then lookup Hamming weights
     xor = x[:, None, :] ^ y[None, :, :]  # (n, m, d)
@@ -224,10 +222,8 @@ def popcount(x: mx.array) -> mx.array:
         Array with same shape containing bit counts
     """
     # Use lookup table for uint8
-    table = np.zeros(256, dtype=np.uint8)
-    for i in range(256):
-        table[i] = bin(i).count('1')
-    table = array(table, dtype="uint8")
+    table_py = [bin(i).count('1') for i in range(256)]
+    table = mx.array(table_py, dtype=mx.uint8)
     return table[x]
 
 # Device Management

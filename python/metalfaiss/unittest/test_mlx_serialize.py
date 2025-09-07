@@ -6,7 +6,7 @@ while preserving their state and search results.
 """
 
 import unittest
-import numpy as np
+from .mlx_test_utils import assert_array_equal, assert_allclose
 import mlx.core as mx
 from typing import List, Tuple
 import pickle
@@ -22,17 +22,13 @@ from ..index.scalar_quantizer_index import ScalarQuantizerIndex
 from ..index.binary_flat_index import BinaryFlatIndex
 from ..index.binary_ivf_index import BinaryIVFIndex
 
-def make_data(num: int, d: int, seed: int = 42) -> mx.array:
+def make_data(num: int, d: int) -> mx.array:
     """Generate test data."""
-    np.random.seed(seed)
-    return array(np.random.rand(num, d).astype('float32'))
+    return array(mx.random.uniform(shape=(num, d)).astype(mx.float32).tolist())
 
-def make_binary_data(num: int, d: int, seed: int = 42) -> mx.array:
+def make_binary_data(num: int, d: int) -> mx.array:
     """Generate binary test data."""
-    np.random.seed(seed)
-    return array(
-        np.random.randint(0, 2, (num, d)).astype('uint8')
-    )
+    return array(mx.random.randint(0, 2, shape=(num, d), dtype=mx.uint8).tolist())
 
 class TestMLXSerialize(unittest.TestCase):
     """Test MLX index serialization."""
@@ -83,8 +79,8 @@ class TestMLXSerialize(unittest.TestCase):
                 d_restore, i_restore = index_restore.search(query, self.k)
                 
                 # Results should match
-                np.testing.assert_array_equal(i_orig, i_restore)
-                np.testing.assert_allclose(d_orig, d_restore, rtol=1e-5)
+                assert_array_equal(i_orig, i_restore)
+                assert_allclose(d_orig, d_restore)
                 
                 # Should be able to add more vectors
                 index_restore.add(query)

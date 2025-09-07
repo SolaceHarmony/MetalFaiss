@@ -5,7 +5,7 @@ test_index_io.py - Tests for index I/O
 import os
 import unittest
 import tempfile
-import numpy as np
+from .mlx_test_utils import assert_array_equal, assert_allclose
 import mlx.core as mx
 from typing import List, Optional, Tuple
 
@@ -26,12 +26,8 @@ class TestIndexIO(unittest.TestCase):
         """Set up test data."""
         self.d = 64
         self.n = 100
-        np.random.seed(42)
-        self.x = mx.array(np.random.randn(self.n, self.d).astype('float32'))
-        self.xb = mx.array(
-            np.random.randint(0, 2, (self.n, self.d)),
-            dtype=np.uint8
-        )
+        self.x = mx.random.normal(shape=(self.n, self.d)).astype(mx.float32)
+        self.xb = mx.random.randint(0, 2, shape=(self.n, self.d), dtype=mx.uint8)
         
     def test_flat_index(self):
         """Test flat index I/O."""
@@ -52,8 +48,8 @@ class TestIndexIO(unittest.TestCase):
         k = 4
         D1, I1 = index.search(self.x[:10], k)
         D2, I2 = index2.search(self.x[:10], k)
-        np.testing.assert_array_equal(D1, D2)
-        np.testing.assert_array_equal(I1, I2)
+        assert_array_equal(D1, D2)
+        assert_array_equal(I1, I2)
         
     def test_ivf_flat_index(self):
         """Test IVF flat index I/O."""
@@ -77,8 +73,8 @@ class TestIndexIO(unittest.TestCase):
         k = 4
         D1, I1 = index.search(self.x[:10], k)
         D2, I2 = index2.search(self.x[:10], k)
-        np.testing.assert_array_equal(D1, D2)
-        np.testing.assert_array_equal(I1, I2)
+        assert_array_equal(D1, D2)
+        assert_array_equal(I1, I2)
         
     def test_binary_flat_index(self):
         """Test binary flat index I/O."""
@@ -98,8 +94,8 @@ class TestIndexIO(unittest.TestCase):
         k = 4
         D1, I1 = index.search(self.xb[:10], k)
         D2, I2 = index2.search(self.xb[:10], k)
-        np.testing.assert_array_equal(D1, D2)
-        np.testing.assert_array_equal(I1, I2)
+        assert_array_equal(D1, D2)
+        assert_array_equal(I1, I2)
         
     def test_binary_ivf_index(self):
         """Test binary IVF index I/O."""
@@ -148,8 +144,8 @@ class TestIndexIO(unittest.TestCase):
         k = 4
         D1, I1 = index.search(self.x[:10], k)
         D2, I2 = index2.search(self.x[:10], k)
-        np.testing.assert_array_almost_equal(D1, D2)
-        np.testing.assert_array_equal(I1, I2)
+        assert_allclose(D1, D2)
+        assert_array_equal(I1, I2)
         
     def test_scalar_quantizer_index(self):
         """Test scalar quantizer index I/O."""
@@ -173,8 +169,8 @@ class TestIndexIO(unittest.TestCase):
         k = 4
         D1, I1 = index.search(self.x[:10], k)
         D2, I2 = index2.search(self.x[:10], k)
-        np.testing.assert_array_almost_equal(D1, D2)
-        np.testing.assert_array_equal(I1, I2)
+        assert_allclose(D1, D2)
+        assert_array_equal(I1, I2)
 
 if __name__ == '__main__':
     unittest.main()

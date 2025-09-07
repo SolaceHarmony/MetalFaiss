@@ -61,7 +61,7 @@ DEFAULT_GPU = GpuResources()
 
 # GPU Array Operations
 
-def to_gpu(x: Union[mx.array, "np.ndarray", List]) -> mx.array:
+def to_gpu(x: Union[mx.array, List]) -> mx.array:
     """Ensure `x` is an MLX array (placed on the current default device).
 
     MLX currently binds ops to the default device/stream; when explicit array
@@ -69,14 +69,11 @@ def to_gpu(x: Union[mx.array, "np.ndarray", List]) -> mx.array:
     """
     if isinstance(x, mx.array):
         return x
-    # Lazy import to avoid hard dependency on NumPy
-    if 'numpy' in str(type(x)) or getattr(type(x), "__module__", "").startswith("numpy"):
-        return mx.array(x)
     return mx.array(x)
 
-def from_gpu(x: mx.array):
-    """Materialize an MLX array to a NumPy array on host memory."""
-    return x.numpy()
+def from_gpu(x: mx.array) -> mx.array:
+    """Pure MLX path: identity (no host conversion)."""
+    return x
 
 # GPU Matrix Operations
 
@@ -90,10 +87,11 @@ def gpu_matmul(a: mx.array, b: mx.array) -> mx.array:
 
 def gpu_l2_distances(x: mx.array, y: mx.array) -> mx.array:
     """L2 distances: (a-b)^2 = a^2 + b^2 - 2ab (full matrix)."""
-    xx = mx.sum(x * x, axis=1, keepdims=True)
-    yy = mx.sum(y * y, axis=1)
+    xx = mx.sum(mx.square(x), axis=1, keepdims=True)
+    yy = mx.sum(mx.square(y), axis=1)
     xy = gpu_matmul(x, mx.transpose(y))
-    return xx + yy - 2 * xy
+    xy2 = mx.add(xy, xy)
+    return mx.subtract(mx.add(xx, yy), xy2)
 
 
 def gpu_l2_distances_chunked(x: mx.array, y: mx.array, row_chunk: Optional[int] = None) -> mx.array:
@@ -121,10 +119,11 @@ def gpu_l2_distances_chunked(x: mx.array, y: mx.array, row_chunk: Optional[int] 
     for s in range(0, n, row_chunk):
         e = min(n, s + row_chunk)
         xs = x[s:e, :]
-        xx = mx.sum(xs * xs, axis=1, keepdims=True)
-        yy = mx.sum(y * y, axis=1)
+        xx = mx.sum(mx.square(xs), axis=1, keepdims=True)
+        yy = mx.sum(mx.square(y), axis=1)
         xy = gpu_matmul(xs, mx.transpose(y))
-        outs.append(xx + yy - 2 * xy)
+        xy2 = mx.add(xy, xy)
+        outs.append(mx.subtract(mx.add(xx, yy), xy2))
     return mx.concatenate(outs, axis=0)
 
 def gpu_cosine_distances(x: mx.array, y: mx.array) -> mx.array:
@@ -138,11 +137,12 @@ def gpu_cosine_distances(x: mx.array, y: mx.array) -> mx.array:
         Distance matrix (n, m) on GPU
     """
     # Normalize and compute dot products efficiently
-    x_norm = mx.sum(x * x, axis=1, keepdims=True) ** 0.5
-    y_norm = mx.sum(y * y, axis=1, keepdims=True) ** 0.5
-    x = x / x_norm
-    y = y / y_norm
-    return 1 - gpu_matmul(x, mx.transpose(y))
+    x_norm = mx.sqrt(mx.sum(mx.square(x), axis=1, keepdims=True))
+    y_norm = mx.sqrt(mx.sum(mx.square(y), axis=1, keepdims=True))
+    x = mx.divide(x, x_norm)
+    y = mx.divide(y, y_norm)
+    dot = gpu_matmul(x, mx.transpose(y))
+    return mx.subtract(mx.ones_like(dot), dot)
 
 # GPU Binary Operations
 
