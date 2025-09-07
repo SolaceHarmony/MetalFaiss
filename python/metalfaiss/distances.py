@@ -82,6 +82,34 @@ def fvec_Linf(x: mx.array, y: mx.array) -> mx.array:
 
 
 ###############################################################################
+# Additional Distance Functions (specialized domains)
+###############################################################################
+
+def fvec_canberra(x: mx.array, y: mx.array) -> mx.array:
+    """Compute Canberra distance between two vectors."""
+    num = mx.abs(x - y)
+    den = mx.abs(x) + mx.abs(y)
+    den = mx.where(den > 0, den, 1.0)
+    return mx.sum(num / den)
+
+
+def fvec_bray_curtis(x: mx.array, y: mx.array) -> mx.array:
+    """Compute Bray-Curtis distance between two vectors."""
+    num = mx.sum(mx.abs(x - y))
+    den = mx.sum(mx.abs(x + y))
+    return num / mx.maximum(den, 1e-20)
+
+
+def fvec_jensen_shannon(x: mx.array, y: mx.array) -> mx.array:
+    """Compute Jensen-Shannon divergence (symmetric KL) between two histograms."""
+    m = 0.5 * (x + y)
+    # Avoid log(0); 0 * log(0) treated as 0
+    kl1 = mx.where(x > 0, x * (mx.log(x) - mx.log(mx.maximum(m, 1e-20))), 0.0)
+    kl2 = mx.where(y > 0, y * (mx.log(y) - mx.log(mx.maximum(m, 1e-20))), 0.0)
+    return 0.5 * (mx.sum(kl1) + mx.sum(kl2))
+
+
+###############################################################################
 # Batch Distance Computations
 ###############################################################################
 
@@ -117,6 +145,40 @@ def pairwise_L2sqr(xq: mx.array, xb: mx.array) -> mx.array:
     
     # Due to rounding, some distances may be slightly negative.
     return mx.maximum(D, 0.0)
+
+
+def pairwise_extra_distances(xq: mx.array, xb: mx.array, metric: str) -> mx.array:
+    """Pairwise distances for extended metrics: Canberra, Bray-Curtis, Jensen-Shannon.
+
+    Args:
+        xq: (nq, d) queries
+        xb: (nb, d) database
+        metric: one of {"Canberra", "BrayCurtis", "JensenShannon"}
+    Returns:
+        (nq, nb) distances
+    """
+    nq, d = xq.shape
+    nb = xb.shape[0]
+    if metric == "Canberra":
+        num = mx.abs(xq[:, None, :] - xb[None, :, :])
+        den = mx.abs(xq[:, None, :]) + mx.abs(xb[None, :, :])
+        den = mx.where(den > 0, den, 1.0)
+        return mx.sum(num / den, axis=2)
+    if metric == "BrayCurtis":
+        num = mx.sum(mx.abs(xq[:, None, :] - xb[None, :, :]), axis=2)
+        den = mx.sum(mx.abs(xq[:, None, :] + xb[None, :, :]), axis=2)
+        return num / mx.maximum(den, 1e-20)
+    if metric == "JensenShannon":
+        # Compute per pair JSD; simple loop over nq for clarity (moderate sizes)
+        out = mx.zeros((nq, nb), dtype=mx.float32)
+        for i in range(nq):
+            xi = xq[i]
+            m = 0.5 * (xi[None, :] + xb)
+            kl1 = mx.where(xi[None, :] > 0, xi[None, :] * (mx.log(xi[None, :]) - mx.log(mx.maximum(m, 1e-20))), 0.0)
+            kl2 = mx.where(xb > 0, xb * (mx.log(xb) - mx.log(mx.maximum(m, 1e-20))), 0.0)
+            out[i] = 0.5 * (mx.sum(kl1, axis=1) + mx.sum(kl2, axis=1))
+        return out
+    raise ValueError(f"Unsupported extra metric: {metric}")
 
 
 ###############################################################################
@@ -197,6 +259,28 @@ def fvec_L2sqr_ny(x: mx.array, y: mx.array) -> mx.array:
     """
     diff = y - x
     return mx.sum(diff * diff, axis=1)
+
+
+def pairwise_L1(xq: mx.array, xb: mx.array) -> mx.array:
+    """Pairwise L1 distances between rows of xq (nq,d) and xb (nb,d)."""
+    return mx.sum(mx.abs(xq[:, None, :] - xb[None, :, :]), axis=2)
+
+
+def pairwise_Linf(xq: mx.array, xb: mx.array) -> mx.array:
+    """Pairwise Linf distances between rows of xq (nq,d) and xb (nb,d)."""
+    return mx.max(mx.abs(xq[:, None, :] - xb[None, :, :]), axis=2)
+
+
+def pairwise_jaccard(xq: mx.array, xb: mx.array) -> mx.array:
+    """Pairwise Jaccard distances (non-negative vectors) between xq and xb.
+
+    J(x,y) = 1 - sum(min(x,y)) / sum(max(x,y))
+    """
+    minimum = mx.minimum(xq[:, None, :], xb[None, :, :])
+    maximum = mx.maximum(xq[:, None, :], xb[None, :, :])
+    num = mx.sum(minimum, axis=2)
+    den = mx.sum(maximum, axis=2)
+    return 1.0 - num / mx.maximum(den, 1e-20)
 
 
 ###############################################################################

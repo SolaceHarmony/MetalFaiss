@@ -1,15 +1,18 @@
 import mlx.core as mx
-import numpy as np
-from typing import Optional, Union
-from .index.FlatIndex import FlatIndex
-from .index.IVFFlatIndex import IVFFlatIndex
-from .index.BaseIndex import BaseIndex
+from typing import Optional
+from .base_index import BaseIndex
+from ..vector_transform.base_vector_transform import BaseVectorTransform
 
 class PreTransformIndex(BaseIndex):
-    def __init__(self, base_index, transform):
-        self.base_index = base_index
+    """Index wrapper that applies a transform before delegating to a base index.
+
+    Example: PreTransformIndex(PCAMatrixTransform(...), FlatIndex(...))
+    """
+
+    def __init__(self, transform: BaseVectorTransform, index: BaseIndex):
         self.transform = transform
-        self._d = transform.d_in
+        self.base_index = index
+        self._d = self.transform.d_in
         self._is_trained = False
         
     @property
@@ -20,21 +23,21 @@ class PreTransformIndex(BaseIndex):
     def is_trained(self):
         return self._is_trained
         
-    def train(self, x):
+    def train(self, x: mx.array) -> None:
         # Train both transform and base index
         self.transform.train(x)
         transformed = self.transform.apply(x)
         self.base_index.train(transformed)
         self._is_trained = True
 
-    def add(self, x):
+    def add(self, x: mx.array, ids: Optional[list[int]] = None) -> None:
         transformed = self.transform.apply(x)
-        self.base_index.add(transformed)
+        self.base_index.add(transformed, ids)
 
-    def search(self, x, k):
+    def search(self, x: mx.array, k: int):
         transformed = self.transform.apply(x)
         return self.base_index.search(transformed, k)
 
-    def reset(self):
+    def reset(self) -> None:
         self.base_index.reset()
         self._is_trained = False

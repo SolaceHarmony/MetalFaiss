@@ -1,6 +1,6 @@
 import mlx.core as mx
-import numpy as np
-from ..index import BaseIndex
+from .base_index import BaseIndex
+from ..utils.search_result import SearchResult
 
 class LSHIndex(BaseIndex):
     def __init__(self, d: int, nbits: int = 64):
@@ -28,7 +28,8 @@ class LSHIndex(BaseIndex):
     def search(self, query, k):
         query = mx.array(query, dtype=mx.float32)
         if len(self.bits) == 0:
-            return mx.array([], dtype=mx.int32), mx.array([], dtype=mx.float32)
+            return SearchResult(distances=mx.zeros((len(query), 0), dtype=mx.float32),
+                                labels=mx.zeros((len(query), 0), dtype=mx.int32))
 
         # Compute query hash and hamming distances
         query_proj = mx.matmul(query, self.rotation_matrix) > 0
@@ -37,4 +38,4 @@ class LSHIndex(BaseIndex):
         # Get top k nearest
         indices = mx.argsort(hamming_dists, axis=1)[:, :k]
         distances = mx.take_along_axis(hamming_dists, indices, axis=1)
-        return indices, distances
+        return SearchResult(distances=distances, labels=indices)
