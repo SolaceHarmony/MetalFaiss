@@ -39,7 +39,7 @@ class FlatIndex:
             xs: A list of vectors (each a list of floats).
             ids: Optional list of integer IDs. If not provided, sequential IDs are used.
         """
-        # Convert the list of vectors to an MLX array (which uses NumPy under the hood)
+        # Convert the list of vectors to an MLX array
         new_vectors = mx.array(xs, dtype=mx.float32)
         n_new = new_vectors.shape[0]
         if self.xb is None:

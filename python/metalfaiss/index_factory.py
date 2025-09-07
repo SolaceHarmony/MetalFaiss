@@ -30,6 +30,7 @@ from .index.base_index import BaseIndex
 from .index.flat_index import FlatIndex
 from .index.ivf_flat_index import IVFFlatIndex
 from .index.ivf_index import IVFIndex
+from .index.ivf_pq_index import IVFPQIndex
 from .index.scalar_quantizer_index import ScalarQuantizerIndex
 from .index.product_quantizer_index import ProductQuantizerIndex
 from .index.hnsw_index import HNSWFlatIndex
@@ -212,9 +213,8 @@ class IndexFactory:
                 quant = FlatIndex(d, metric_type=metric)
                 return IVFFlatIndex(quantizer=quant, d=d, nlist=nlist)
             elif second_part.startswith('PQ'):
-                # Not yet implemented in this codebase
                 m = cls._extract_number(second_part, 'PQ', default=8)
-                raise NotImplementedError(f"IVF+PQ (m={m}) is not implemented yet")
+                return IVFPQIndex(d=d, nlist=nlist, M=m, nbits=8, metric_type=metric)
             elif second_part.startswith('SQ'):
                 # Not yet implemented in this codebase
                 sq_type = cls._parse_sq_type(second_part)
