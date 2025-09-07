@@ -155,7 +155,7 @@ class BinaryHNSWIndex(BaseBinaryIndex):
                     x[i:i+1],
                     self.xb[j:j+1]
                 )[0, 0]
-                return float(dist)
+                return float(dist.astype(mx.float32))
                 
             # Search HNSW graph
             results = self.hnsw.search(

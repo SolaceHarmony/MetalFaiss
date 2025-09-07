@@ -18,6 +18,7 @@ from .flat_index import FlatIndex
 from .product_quantizer import ProductQuantizer
 from ..types.metric_type import MetricType
 from ..utils.search_result import SearchResult
+from ..utils.sorting import mlx_topk
 
 
 class IVFPQIndex(BaseIndex):
@@ -61,7 +62,7 @@ class IVFPQIndex(BaseIndex):
         perm = mx.random.permutation(n)[:k]
         cent = x[perm]
         for _ in range(iters):
-            d2 = mx.sum(mx.square(x[:, None, :] - cent[None, :, :]), axis=2)
+            d2 = mx.sum(mx.square(mx.subtract(x[:, None, :], cent[None, :, :])), axis=2)
             labels = mx.argmin(d2, axis=1)
             newc = []
             for j in range(k):
@@ -85,10 +86,10 @@ class IVFPQIndex(BaseIndex):
         self._quantizer.reset()
         self._quantizer.add(self._centroids.tolist())
         # Compute residuals for training PQ
-        d2 = mx.sum(mx.square(x[:, None, :] - self._centroids[None, :, :]), axis=2)
+        d2 = mx.sum(mx.square(mx.subtract(x[:, None, :], self._centroids[None, :, :])), axis=2)
         labels = mx.argmin(d2, axis=1)
         assigned = self._centroids[labels]
-        residuals = x - assigned
+        residuals = mx.subtract(x, assigned)
         # Train PQ on residuals
         self._pq.train(residuals)
         self.is_trained = True
@@ -101,9 +102,9 @@ class IVFPQIndex(BaseIndex):
             raise ValueError("Dimension mismatch in add()")
         n = int(x.shape[0])
         # Assign to nearest centroids
-        d2 = mx.sum(mx.square(x[:, None, :] - self._centroids[None, :, :]), axis=2)
+        d2 = mx.sum(mx.square(mx.subtract(x[:, None, :], self._centroids[None, :, :])), axis=2)
         labels = mx.argmin(d2, axis=1)
-        residuals = x - self._centroids[labels]
+        residuals = mx.subtract(x, self._centroids[labels])
         codes = self._pq.compute_codes(residuals)
         # Store per list
         for i in range(n):
@@ -120,7 +121,7 @@ class IVFPQIndex(BaseIndex):
         qsub = q.reshape(M, dsub)
         lut = mx.zeros((M, ksub), dtype=mx.float32)
         for m in range(M):
-            diff = self._pq.centroids[m] - qsub[m][None, :]
+            diff = mx.subtract(self._pq.centroids[m], qsub[m][None, :])
             lut[m] = mx.sum(mx.square(diff), axis=1)
         return lut
 
@@ -136,7 +137,7 @@ class IVFPQIndex(BaseIndex):
         for i in range(nq):
             q = xq[i]
             # Coarse probe
-            d2 = mx.sum(mx.square(self._centroids - q[None, :]), axis=1)
+            d2 = mx.sum(mx.square(mx.subtract(self._centroids, q[None, :])), axis=1)
             probe_idx = mx.argsort(d2)[: self._nprobe]
             # Accumulate candidates in MLX
             vals_accum: Optional[mx.array] = None
@@ -146,7 +147,7 @@ class IVFPQIndex(BaseIndex):
                 codes_list = self._codes[lid_int]
                 if not codes_list:
                     continue
-                qres = q - self._centroids[lid_int]
+                qres = mx.subtract(q, self._centroids[lid_int])
                 lut = self._adc_lut(qres)  # (M, ksub)
                 # Stack codes and ids for this list
                 ids_arr = mx.array([vid for (vid, _c) in codes_list], dtype=mx.int32)
@@ -158,7 +159,7 @@ class IVFPQIndex(BaseIndex):
                 for m in range(M):
                     idx_m = codes_mat[:, m]
                     vals_m = lut[m][idx_m]
-                    scores = scores + vals_m
+                    scores = mx.add(scores, vals_m)
                 if vals_accum is None:
                     vals_accum = scores
                     ids_accum = ids_arr
@@ -170,12 +171,10 @@ class IVFPQIndex(BaseIndex):
                 all_dists.append(infv)
                 all_ids.append(mx.zeros((k,), dtype=mx.int32))
                 continue
-            # Top-k smallest via negative + topk
+            # Top-k smallest distances
             kk = k if k <= int(vals_accum.shape[0]) else int(vals_accum.shape[0])
-            neg = -vals_accum
-            topv, topi = mx.topk(neg, kk, axis=0)
+            sel_vals, topi = mlx_topk(vals_accum, kk, axis=0, largest=False)
             sel_ids = ids_accum[topi]
-            sel_vals = -topv
             all_dists.append(sel_vals)
             all_ids.append(sel_ids)
         return SearchResult(distances=mx.stack(all_dists), indices=mx.stack(all_ids))

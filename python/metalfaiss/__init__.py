@@ -26,7 +26,7 @@ except ImportError as e:
 
 # Core classes
 from .metric_type import MetricType
-from .search_result import SearchResult
+from .utils.search_result import SearchResult
 from .search_range_result import SearchRangeResult
 
 # Main index implementation

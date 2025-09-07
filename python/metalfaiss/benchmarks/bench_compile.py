@@ -38,7 +38,10 @@ def _median(f, warmup: int = 5, reps: int = 30):
 
 def bench_gelu() -> Tuple[float, float]:
     def gelu(x: mx.array) -> mx.array:
-        return x * (mx.array(1.0) + mx.erf(x / mx.sqrt(mx.array(2.0)))) / mx.array(2.0)
+        return mx.divide(
+            mx.multiply(x, mx.add(mx.array(1.0), mx.erf(mx.divide(x, mx.sqrt(mx.array(2.0)))))),
+            mx.array(2.0)
+        )
 
     x = mx.random.uniform(shape=(32, 1000, 4096)).astype(mx.float32)
     t0 = _median(lambda: gelu(x))
@@ -64,11 +67,17 @@ def bench_flat_wrapper() -> Tuple[float, float]:
     from metalfaiss.indexflat import FlatIndex
     idx = FlatIndex(d=64)
     xb = mx.random.uniform(shape=(20000, 64)).astype(mx.float32)
-    idx.add(xb.tolist())
+    idx.add(xb)
 
     def search_fun(xq: mx.array):
-        # Current API takes lists; this measures wrapper overhead benefit
-        return idx.search(xq.tolist(), k=10)
+        # Pure-MLX search path
+        res = idx.search(xq, k=10)
+        # Support both legacy and MLX-native result types
+        d = getattr(res, 'distances', None)
+        i = getattr(res, 'indices', None)
+        if i is None:
+            i = getattr(res, 'labels', None)
+        return d, i
 
     xq = mx.random.uniform(shape=(200, 64)).astype(mx.float32)
     t0 = _median(lambda: search_fun(xq))
@@ -135,4 +144,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

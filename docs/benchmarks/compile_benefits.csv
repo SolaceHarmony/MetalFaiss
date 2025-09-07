@@ -1,0 +1,5 @@
+name,non_compiled_ms,compiled_ms,speedup
+gelu,8.384000,1.745125,4.804
+svd_mlx,25.943917,22.680708,1.144
+svd_kernel,25.956250,25.925125,1.001
+flat_wrapper,1.345041,1.204500,1.117

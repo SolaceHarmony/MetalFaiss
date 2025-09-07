@@ -16,7 +16,7 @@ from typing import Optional, List, Tuple
 
 from .metric_type import MetricType
 from .range_search import RangeSearchResult
-from .search_result import SearchResult
+from .utils.search_result import SearchResult
 
 FAISS_VERSION = (1, 10, 0)
 

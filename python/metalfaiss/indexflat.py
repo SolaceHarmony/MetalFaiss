@@ -8,8 +8,9 @@ import mlx.core as mx
 from typing import List, Optional, Tuple
 
 from .metric_type import MetricType
-from .search_result import SearchResult
+from .utils.search_result import SearchResult
 from .distances import pairwise_L2sqr
+from .utils.sorting import mlx_topk
 
 class FlatIndex:
     """
@@ -53,14 +54,17 @@ class FlatIndex:
             if ids is not None:
                 new_ids = mx.array(ids, dtype=mx.int64)
             else:
-                new_ids = mx.arange(n_new, dtype=mx.int64) + self.ntotal
+                new_ids = mx.add(
+                    mx.arange(n_new, dtype=mx.int64),
+                    mx.array(self.ntotal, dtype=mx.int64)
+                )
             self.ids = mx.concatenate([self.ids, new_ids], axis=0)
         self.ntotal = int(self.xb.shape[0])
         # Force immediate evaluation
         mx.eval(self.xb)
         mx.eval(self.ids)
 
-    def search(self, xs: List[List[float]], k: int) -> SearchResult:
+    def search(self, xs, k: int) -> SearchResult:
         """
         Perform a k-nearest neighbor search.
         
@@ -73,36 +77,32 @@ class FlatIndex:
         """
         if self.xb is None or self.ntotal == 0:
             raise ValueError("Index is empty; add vectors before searching.")
-        xq = mx.array(xs, dtype=mx.float32)
+        # Accept either Python lists or MLX arrays to allow compiled call-sites
+        xq = xs if isinstance(xs, mx.array) else mx.array(xs, dtype=mx.float32)
         # Compute pairwise distances based on the metric type.
         if self.metric_type == MetricType.L2:
             # Compute pairwise squared L2 distances.
             distances = pairwise_L2sqr(xq, self.xb)
         elif self.metric_type == MetricType.INNER_PRODUCT:
-            # For inner product, higher is better. We return negative inner product as distances.
-            distances = -mx.matmul(xq, self.xb.T)
+            # For inner product, higher is better. Represent distances as negative inner product.
+            distances = mx.negative(mx.matmul(xq, self.xb.T))
         elif self.metric_type == MetricType.L1:
             # Compute L1 distances via broadcasting.
-            distances = mx.sum(mx.abs(xq.reshape((len(xq), 1, -1)) - self.xb), axis=2)
+            distances = mx.sum(mx.abs(mx.subtract(xq.reshape((xq.shape[0], 1, -1)), self.xb)), axis=2)
         elif self.metric_type == MetricType.LINF:
             # Compute L-inf distances via broadcasting.
-            distances = mx.max(mx.abs(xq.reshape((len(xq), 1, -1)) - self.xb), axis=2)
+            distances = mx.max(mx.abs(mx.subtract(xq.reshape((xq.shape[0], 1, -1)), self.xb)), axis=2)
         else:
             raise ValueError(f"Unsupported metric type: {self.metric_type}")
         
-        # Use MLX’s topk function to retrieve k smallest distances for L2 (or largest inner product)
-        # Note: For inner product, since we negated the values, we retrieve the top k values.
-        if self.metric_type == MetricType.INNER_PRODUCT:
-            values, indices = mx.topk(distances, k, axis=1)
-        else:
-            # For metrics where lower is better (L2, L1, Linf), we negate distances, take topk, then negate back.
-            neg_distances = -distances
-            values, indices = mx.topk(neg_distances, k, axis=1)
-            values = -values
+        # Select top-k according to metric semantics
+        # - L2/L1/Linf: pick smallest distances
+        # - INNER_PRODUCT: distances are defined as -IP, so also pick smallest
+        values, indices = mlx_topk(distances, k, axis=1, largest=False)
         
         # Map indices to the stored IDs.
         selected_ids = mx.take(self.ids, indices, axis=0)
-        return SearchResult(distances=values, labels=selected_ids)
+        return SearchResult(distances=values, indices=selected_ids)
 
     def reconstruct(self, key: int) -> mx.array:
         """

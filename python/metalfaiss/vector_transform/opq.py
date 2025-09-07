@@ -71,9 +71,9 @@ class OPQTransform(BaseVectorTransform):
                 s, e = m * self.d_sub, (m + 1) * self.d_sub
                 sub_x = xr[:, s:e]
                 sub_c = sub_centroids[m]
-                nx = mx.sum(sub_x * sub_x, axis=1, keepdims=True)
-                nc = mx.sum(sub_c * sub_c, axis=1, keepdims=True)
-                d2 = nx + mx.transpose(nc) - 2 * mx.matmul(sub_x, sub_c.T)
+                nx = mx.sum(mx.square(sub_x), axis=1, keepdims=True)
+                nc = mx.sum(mx.square(sub_c), axis=1, keepdims=True)
+                d2 = mx.subtract(mx.add(nx, mx.transpose(nc)), mx.multiply(2, mx.matmul(sub_x, sub_c.T)))
                 labels = mx.argmin(d2, axis=1)
                 k = sub_c.shape[0]
                 oh = (labels.reshape((-1, 1)) == mx.arange(k).reshape((1, -1))).astype(mx.float32)
@@ -111,13 +111,13 @@ class OPQTransform(BaseVectorTransform):
             perm = mx.random.permutation(n)
         centroids = x[perm[:k]]
         for _ in range(self.n_iter_pq):
-            nx = mx.sum(x * x, axis=1, keepdims=True)
-            nc = mx.sum(centroids * centroids, axis=1, keepdims=True)
-            d2 = nx + mx.transpose(nc) - 2 * mx.matmul(x, centroids.T)
+            nx = mx.sum(mx.square(x), axis=1, keepdims=True)
+            nc = mx.sum(mx.square(centroids), axis=1, keepdims=True)
+            d2 = mx.subtract(mx.add(nx, mx.transpose(nc)), mx.multiply(2, mx.matmul(x, centroids.T)))
             labels = mx.argmin(d2, axis=1)
             oh = (labels.reshape((-1, 1)) == mx.arange(k).reshape((1, -1))).astype(mx.float32)
             counts = mx.sum(oh, axis=0).reshape((k, 1))
             sums = mx.matmul(oh.T, x)
             counts = mx.maximum(counts, 1)
-            centroids = sums / counts
+            centroids = mx.divide(sums, counts)
         return centroids

@@ -7,6 +7,7 @@ import mlx.core as mx
 from .base_index import BaseIndex
 from ..types.metric_type import MetricType
 from ..utils.search_result import SearchResult
+from ..utils.sorting import mlx_topk
 from ..index.index_error import IndexError, TrainingError
 
 class ScalarQuantizerIndex(BaseIndex):
@@ -92,12 +93,11 @@ class ScalarQuantizerIndex(BaseIndex):
         # TODO: Implement efficient distance computation with quantized vectors
         # For now, compute exact distances
         if self.metric_type == MetricType.L2:
-            distances = mx.sum(mx.square(x.reshape(len(x), 1, -1) - self._codes), axis=2)
+            distances = mx.sum(mx.square(mx.subtract(x.reshape(len(x), 1, -1), self._codes)), axis=2)
         else:
-            distances = -mx.matmul(x, self._codes.T)
+            distances = mx.negative(mx.matmul(x, self._codes.T))
             
-        values, indices = mx.topk(-distances, k, axis=1)
-        values = -values
+        values, indices = mlx_topk(distances, k, axis=1, largest=False)
             
         return SearchResult(distances=values, indices=indices)
         

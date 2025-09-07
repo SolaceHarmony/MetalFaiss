@@ -71,10 +71,10 @@ class HNSWIndex(BaseIndex):
             batch = vectors[i:min(i + batch_size, n)]
             if self.metric_type == MetricType.L2:
                 # Use broadcasting for L2 computation
-                diff = batch - query.reshape(1, -1)
-                batch_dists = mx.sum(diff * diff, axis=1)
+                diff = mx.subtract(batch, query.reshape(1, -1))
+                batch_dists = mx.sum(mx.multiply(diff, diff), axis=1)
             else:  # Inner product
-                batch_dists = -mx.matmul(batch, query.reshape(-1, 1)).reshape(-1)
+                batch_dists = mx.negative(mx.matmul(batch, query.reshape(-1, 1)).reshape(-1))
             distances = mx.scatter(
                 distances,
                 mx.arange(i, min(i + batch_size, n)),
@@ -99,9 +99,9 @@ class HNSWIndex(BaseIndex):
         
         def dist_computer(i: int, j: int) -> float:
             if i == -1 or j == -1:
-                return float(self._inf)
+                return float(self._inf.astype(mx.float32))
             if i >= len(self._vectors) or j >= len(self._vectors):
-                return float(self._inf)
+                return float(self._inf.astype(mx.float32))
                 
             # Check cache
             cache_key = (min(i, j), max(i, j))
@@ -113,10 +113,10 @@ class HNSWIndex(BaseIndex):
             vec2 = self._vectors[j]
             
             if self.metric_type == MetricType.L2:
-                diff = vec1 - vec2
-                dist = float(mx.sum(diff * diff))
+                diff = mx.subtract(vec1, vec2)
+                dist = float(mx.sum(mx.multiply(diff, diff)).astype(mx.float32))
             else:  # Inner product
-                dist = -float(mx.dot(vec1, vec2))
+                dist = float(mx.negative(mx.dot(vec1, vec2)).astype(mx.float32))
                 
             # Cache result
             cache[cache_key] = dist
