@@ -146,7 +146,7 @@ class BaseIndex(ABC):
         """
         raise NotImplementedError("search_range not implemented")
         
-    def reconstruct(self, key: int) -> List[float]:
+    def reconstruct(self, key: int) -> mx.array:
         """Reconstruct vector from storage.
         
         Args:

@@ -12,6 +12,7 @@ from dataclasses import dataclass
 import random
 import math
 import heapq
+from ..types.metric_type import MetricType
 
 @dataclass
 class HNSWStats:
@@ -170,6 +171,22 @@ class HNSW:
         self.search_bounded_queue = True
         
         self.set_default_probas()
+
+    # Lightweight 1D scatter helper (avoids mx.scatter dependency)
+    @staticmethod
+    def _scatter1d(a: mx.array, idx: mx.array, val: mx.array) -> mx.array:
+        """Return a copy of a with a[idx[i]] = val[i] for 1D arrays.
+
+        idx and val are 1D and have equal length. Implemented via masks.
+        """
+        n = a.shape[0]
+        ar = mx.arange(n, dtype=idx.dtype)
+        out = a
+        m = idx.shape[0]
+        for i in range(int(m)):
+            mask = ar == idx[i]
+            out = mx.where(mask, val[i:i+1].reshape(()).astype(out.dtype), out)
+        return out
         
     def set_default_probas(self) -> None:
         """Set level probabilities following FAISS logic."""
@@ -261,21 +278,12 @@ class HNSW:
     def add_vertex(self, vertex: int, level: int, dist_computer) -> None:
         """Add new vertex following FAISS implementation."""
         # Extend graph structures
-        while len(self.levels) <= vertex:
-            self.levels = mx.concatenate([
-                self.levels,
-                mx.array([0], dtype=mx.int32)
-            ])
-            self.offsets = mx.concatenate([
-                self.offsets,
-                mx.array([len(self.neighbors)], dtype=mx.int64)
-            ])
-            self.neighbors = mx.concatenate([
-                self.neighbors,
-                mx.full(self.cum_nneighbor_per_level[0], -1, dtype=mx.int32)
-            ])
+        while int(self.levels.shape[0]) <= vertex:
+            self.levels = mx.concatenate([self.levels, mx.array([0], dtype=mx.int32)])
+            self.offsets = mx.concatenate([self.offsets, mx.array([self.neighbors.shape[0]], dtype=mx.int64)])
+            self.neighbors = mx.concatenate([self.neighbors, mx.full(self.cum_nneighbor_per_level[0], -1, dtype=mx.int32)])
             
-        self.levels = mx.scatter(self.levels, mx.array([vertex]), mx.array([level]))
+        self.levels = self._scatter1d(self.levels, mx.array([vertex], dtype=mx.int32), mx.array([level], dtype=mx.int32))
         
         if level > self.max_level:
             self.max_level = level
@@ -352,18 +360,18 @@ class HNSW:
         # Find first empty slot or replace worst neighbor
         for i in range(max_edges):
             if int(neighbors[i]) == -1:
-                self.neighbors = mx.scatter(
+                self.neighbors = self._scatter1d(
                     self.neighbors,
-                    mx.array([start + i]),
-                    mx.array([vertex2])
+                    mx.array([start + i], dtype=mx.int64).astype(mx.int32),
+                    mx.array([vertex2], dtype=mx.int32)
                 )
                 return
                 
         # Need to replace worst neighbor
-        self.neighbors = mx.scatter(
+        self.neighbors = self._scatter1d(
             self.neighbors,
-            mx.array([start + max_edges - 1]),
-            mx.array([vertex2])
+            mx.array([start + max_edges - 1], dtype=mx.int64).astype(mx.int32),
+            mx.array([vertex2], dtype=mx.int32)
         )
         
     def search(self, query: int, ef: int, dist_computer) -> List[Tuple[float, int]]:
@@ -459,3 +467,89 @@ class HNSW:
         stats.n1 = len(visited)
         stats.n2 = len(results)
         return sorted(results)
+
+    # --- Array-native level-0 search (no Python float/int casts) ---------
+    def search_level0_array(
+        self,
+        query_vec: mx.array,
+        ef: int,
+        vectors: mx.array,
+        metric: MetricType,
+        k: int,
+    ) -> Tuple[mx.array, mx.array]:
+        """Approximate search at level 0 using MLX arrays only.
+
+        Args:
+            query_vec: (d,) MLX array
+            ef: candidate list size (>= k)
+            vectors: (n, d) MLX database vectors aligned with this graph
+            metric: MetricType.L2 or MetricType.INNER_PRODUCT
+            k: desired number of neighbors (k <= ef)
+
+        Returns:
+            Tuple (distances, ids) each (k,) MLX arrays.
+        """
+        n = self.levels.shape[0]
+        if n == 0:
+            return mx.zeros((0,), dtype=mx.float32), mx.zeros((0,), dtype=mx.int32)
+
+        # Visited mask (uint8: 0/1)
+        visited = mx.zeros((n,), dtype=mx.uint8)
+
+        # Seed at entry point
+        entry = mx.array(self.entry_point, dtype=mx.int32)
+        visited = self._scatter1d(visited, entry.reshape((1,)).astype(mx.int32), mx.ones((1,), dtype=mx.uint8))
+
+        def _dist(a: mx.array) -> mx.array:
+            # a: (m, d)
+            if metric == MetricType.L2:
+                diff = mx.subtract(a, query_vec.reshape((1, -1)))
+                return mx.sum(mx.square(diff), axis=1)
+            else:
+                return mx.negative(mx.matmul(a, query_vec.reshape((-1, 1))).reshape((-1,)))
+
+        # Candidate buffers
+        cand_ids = entry.reshape((1,))
+        cand_d = _dist(mx.take(vectors, cand_ids, axis=0))
+
+        # Iterate ef steps; at each step expand current best frontier
+        steps = mx.array(ef, dtype=mx.int32)
+        for _ in range(ef):
+            # Keep only top-ef candidates
+            order = mx.argsort(cand_d)[: ef]
+            cand_ids = mx.take(cand_ids, order, axis=0)
+            cand_d = mx.take(cand_d, order, axis=0)
+
+            # Build neighbors for current frontier (level 0 only)
+            deg = self.M0
+            offs = mx.take(self.offsets, cand_ids, axis=0)  # (c,)
+            grid = offs.reshape((-1, 1)) + mx.arange(deg, dtype=offs.dtype).reshape((1, -1))  # (c,deg)
+            neigh2d = mx.take(self.neighbors, grid, axis=0)  # (c,deg)
+            neigh = neigh2d.reshape((-1,))
+            valid = neigh >= 0
+            # Filter not-yet-visited
+            safe_neigh = mx.where(valid, neigh, mx.zeros_like(neigh))
+            vis = mx.take(visited, safe_neigh)
+            notvis = mx.logical_and(valid, vis == 0)
+            if mx.sum(notvis) == 0:
+                break
+            # Build safe ids (replace invalid with 0) and inf distances for invalid
+            new_ids_all = mx.where(notvis, neigh, mx.add(mx.zeros_like(neigh), mx.array(-1, dtype=neigh.dtype)))
+            safe_ids = mx.maximum(new_ids_all, mx.zeros_like(new_ids_all))
+            new_vecs = mx.take(vectors, safe_ids, axis=0)
+            new_d = _dist(new_vecs)
+            infv = mx.divide(mx.ones_like(new_d), mx.zeros_like(new_d))
+            new_d = mx.where(new_ids_all >= 0, new_d, infv)
+            # Mark visited for valid ids
+            ones_u8 = mx.add(mx.zeros_like(safe_ids), mx.array(1, dtype=mx.uint8))
+            zeros_u8 = mx.add(mx.zeros_like(safe_ids), mx.array(0, dtype=mx.uint8))
+            upd = mx.where(new_ids_all >= 0, ones_u8, zeros_u8)
+            visited = self._scatter1d(visited, safe_ids, upd)
+            cand_ids = mx.concatenate([cand_ids, safe_ids], axis=0)
+            cand_d = mx.concatenate([cand_d, new_d], axis=0)
+
+        # Final top-k
+        order = mx.argsort(cand_d)[: k]
+        top_ids = mx.take(cand_ids, order, axis=0).astype(mx.int32)
+        top_d = mx.take(cand_d, order, axis=0).astype(mx.float32)
+        return top_d, top_ids
