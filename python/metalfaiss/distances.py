@@ -89,24 +89,25 @@ def fvec_canberra(x: mx.array, y: mx.array) -> mx.array:
     """Compute Canberra distance between two vectors."""
     num = mx.abs(x - y)
     den = mx.abs(x) + mx.abs(y)
-    den = mx.where(den > 0, den, 1.0)
-    return mx.sum(num / den)
+    den = mx.where(den > 0, den, mx.ones_like(den))
+    return mx.sum(mx.divide(num, den))
 
 
 def fvec_bray_curtis(x: mx.array, y: mx.array) -> mx.array:
     """Compute Bray-Curtis distance between two vectors."""
     num = mx.sum(mx.abs(x - y))
     den = mx.sum(mx.abs(x + y))
-    return num / mx.maximum(den, 1e-20)
+    return mx.divide(num, mx.maximum(den, mx.array(1e-20, dtype=num.dtype)))
 
 
 def fvec_jensen_shannon(x: mx.array, y: mx.array) -> mx.array:
     """Compute Jensen-Shannon divergence (symmetric KL) between two histograms."""
-    m = 0.5 * (x + y)
+    m = mx.multiply(mx.array(0.5, dtype=x.dtype), mx.add(x, y))
     # Avoid log(0); 0 * log(0) treated as 0
-    kl1 = mx.where(x > 0, x * (mx.log(x) - mx.log(mx.maximum(m, 1e-20))), 0.0)
-    kl2 = mx.where(y > 0, y * (mx.log(y) - mx.log(mx.maximum(m, 1e-20))), 0.0)
-    return 0.5 * (mx.sum(kl1) + mx.sum(kl2))
+    tiny = mx.array(1e-20, dtype=x.dtype)
+    kl1 = mx.where(x > 0, mx.multiply(x, (mx.log(x) - mx.log(mx.maximum(m, tiny)))), mx.zeros_like(x))
+    kl2 = mx.where(y > 0, mx.multiply(y, (mx.log(y) - mx.log(mx.maximum(m, tiny)))), mx.zeros_like(y))
+    return mx.multiply(mx.array(0.5, dtype=x.dtype), mx.add(mx.sum(kl1), mx.sum(kl2)))
 
 
 ###############################################################################
@@ -134,17 +135,17 @@ def pairwise_L2sqr(xq: mx.array, xb: mx.array) -> mx.array:
         MLX array of squared distances with shape (nq, nb).
     """
     # Compute squared norms for queries and database vectors.
-    norms_q = mx.sum(xq * xq, axis=1, keepdims=True)  # shape: (nq, 1)
-    norms_b = mx.sum(xb * xb, axis=1, keepdims=True)  # shape: (nb, 1)
+    norms_q = mx.sum(mx.square(xq), axis=1, keepdims=True)  # shape: (nq, 1)
+    norms_b = mx.sum(mx.square(xb), axis=1, keepdims=True)  # shape: (nb, 1)
     
     # Compute dot products: (nq, d) x (d, nb) = (nq, nb)
     dot_products = mx.matmul(xq, xb.T)
     
     # Combine: D = norms_q + norms_b.T - 2 * dot_products
-    D = norms_q + mx.transpose(norms_b) - 2 * dot_products
+    D = mx.subtract(mx.add(norms_q, mx.transpose(norms_b)), mx.add(dot_products, dot_products))
     
     # Due to rounding, some distances may be slightly negative.
-    return mx.maximum(D, 0.0)
+    return mx.maximum(D, mx.zeros_like(D))
 
 
 def pairwise_extra_distances(xq: mx.array, xb: mx.array, metric: str) -> mx.array:
@@ -162,12 +163,12 @@ def pairwise_extra_distances(xq: mx.array, xb: mx.array, metric: str) -> mx.arra
     if metric == "Canberra":
         num = mx.abs(xq[:, None, :] - xb[None, :, :])
         den = mx.abs(xq[:, None, :]) + mx.abs(xb[None, :, :])
-        den = mx.where(den > 0, den, 1.0)
-        return mx.sum(num / den, axis=2)
+        den = mx.where(den > 0, den, mx.ones_like(den))
+        return mx.sum(mx.divide(num, den), axis=2)
     if metric == "BrayCurtis":
         num = mx.sum(mx.abs(xq[:, None, :] - xb[None, :, :]), axis=2)
         den = mx.sum(mx.abs(xq[:, None, :] + xb[None, :, :]), axis=2)
-        return num / mx.maximum(den, 1e-20)
+        return mx.divide(num, mx.maximum(den, mx.array(1e-20, dtype=num.dtype)))
     if metric == "JensenShannon":
         # Compute per pair JSD; simple loop over nq for clarity (moderate sizes)
         out = mx.zeros((nq, nb), dtype=mx.float32)
@@ -195,7 +196,7 @@ def fvec_norms_L2(x: mx.array) -> mx.array:
     Returns:
         MLX array of shape (n,) with the L2 norm of each vector.
     """
-    return mx.sqrt(mx.sum(x * x, axis=1))
+    return mx.sqrt(mx.sum(mx.square(x), axis=1))
 
 
 def fvec_norms_L2sqr(x: mx.array) -> mx.array:
@@ -208,7 +209,7 @@ def fvec_norms_L2sqr(x: mx.array) -> mx.array:
     Returns:
         MLX array of shape (n,) with the squared L2 norm of each vector.
     """
-    return mx.sum(x * x, axis=1)
+    return mx.sum(mx.square(x), axis=1)
 
 
 def fvec_renorm_L2(x: mx.array) -> mx.array:
@@ -221,10 +222,9 @@ def fvec_renorm_L2(x: mx.array) -> mx.array:
     Returns:
         MLX array of shape (n, d) where each row has been normalized to unit norm.
     """
-    norms = mx.sqrt(mx.sum(x * x, axis=1, keepdims=True))
-    # Avoid division by zero.
-    norms = mx.where(norms > 0, norms, 1)
-    return x / norms
+    norms = mx.sqrt(mx.sum(mx.square(x), axis=1, keepdims=True))
+    norms = mx.where(norms > 0, norms, mx.ones_like(norms))
+    return mx.divide(x, norms)
 
 
 ###############################################################################
@@ -258,7 +258,7 @@ def fvec_L2sqr_ny(x: mx.array, y: mx.array) -> mx.array:
         MLX array of shape (ny,) with the squared distances.
     """
     diff = y - x
-    return mx.sum(diff * diff, axis=1)
+    return mx.sum(mx.square(diff), axis=1)
 
 
 def pairwise_L1(xq: mx.array, xb: mx.array) -> mx.array:
@@ -280,7 +280,9 @@ def pairwise_jaccard(xq: mx.array, xb: mx.array) -> mx.array:
     maximum = mx.maximum(xq[:, None, :], xb[None, :, :])
     num = mx.sum(minimum, axis=2)
     den = mx.sum(maximum, axis=2)
-    return 1.0 - num / mx.maximum(den, 1e-20)
+    ones = mx.ones_like(num)
+    frac = mx.divide(num, mx.maximum(den, mx.array(1e-20, dtype=num.dtype)))
+    return mx.subtract(ones, frac)
 
 
 ###############################################################################

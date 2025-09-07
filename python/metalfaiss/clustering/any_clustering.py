@@ -1,5 +1,4 @@
 import mlx.core as mx
-import numpy as np
 from typing import List, Optional
 from dataclasses import dataclass
 
@@ -87,11 +86,11 @@ class AnyClustering(BaseClustering):
             for _ in range(1, self.k):
                 # Compute distances to existing centroids
                 distances = mx.min(
-                    mx.sum((x[:, None] - mx.stack(centroids)) ** 2, axis=-1),
+                    mx.sum(mx.square(x[:, None] - mx.stack(centroids)), axis=-1),
                     axis=-1
                 )
                 # Select next centroid probabilistically
-                probs = distances / mx.sum(distances)
+                probs = mx.divide(distances, mx.sum(distances))
                 next_idx = mx.random.choice(len(x), p=probs)
                 idx.append(next_idx)
                 centroids.append(x[next_idx])
@@ -103,7 +102,7 @@ class AnyClustering(BaseClustering):
                 old_centroids = self._centroids
                 
                 # Compute assignments
-                dists = mx.sum((x[:, None] - self._centroids[None]) ** 2, axis=2)
+                dists = mx.sum(mx.square(x[:, None] - self._centroids[None]), axis=2)
                 labels = mx.argmin(dists, axis=1)
                 
                 # Update centroids
@@ -119,7 +118,7 @@ class AnyClustering(BaseClustering):
                 self._centroids = mx.stack(new_centroids)
                 
                 # Check convergence
-                if mx.sum((self._centroids - old_centroids) ** 2) < self.parameters.eps:
+                if mx.sum(mx.square(self._centroids - old_centroids)) < self.parameters.eps:
                     break
                     
             mx.eval(self._centroids)

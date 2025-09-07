@@ -61,7 +61,7 @@ class IVFPQIndex(BaseIndex):
         perm = mx.random.permutation(n)[:k]
         cent = x[perm]
         for _ in range(iters):
-            d2 = mx.sum((x[:, None, :] - cent[None, :, :]) ** 2, axis=2)
+            d2 = mx.sum(mx.square(x[:, None, :] - cent[None, :, :]), axis=2)
             labels = mx.argmin(d2, axis=1)
             newc = []
             for j in range(k):
@@ -85,7 +85,7 @@ class IVFPQIndex(BaseIndex):
         self._quantizer.reset()
         self._quantizer.add(self._centroids.tolist())
         # Compute residuals for training PQ
-        d2 = mx.sum((x[:, None, :] - self._centroids[None, :, :]) ** 2, axis=2)
+        d2 = mx.sum(mx.square(x[:, None, :] - self._centroids[None, :, :]), axis=2)
         labels = mx.argmin(d2, axis=1)
         assigned = self._centroids[labels]
         residuals = x - assigned
@@ -101,7 +101,7 @@ class IVFPQIndex(BaseIndex):
             raise ValueError("Dimension mismatch in add()")
         n = int(x.shape[0])
         # Assign to nearest centroids
-        d2 = mx.sum((x[:, None, :] - self._centroids[None, :, :]) ** 2, axis=2)
+        d2 = mx.sum(mx.square(x[:, None, :] - self._centroids[None, :, :]), axis=2)
         labels = mx.argmin(d2, axis=1)
         residuals = x - self._centroids[labels]
         codes = self._pq.compute_codes(residuals)
@@ -121,7 +121,7 @@ class IVFPQIndex(BaseIndex):
         lut = mx.zeros((M, ksub), dtype=mx.float32)
         for m in range(M):
             diff = self._pq.centroids[m] - qsub[m][None, :]
-            lut[m] = mx.sum(diff * diff, axis=1)
+            lut[m] = mx.sum(mx.square(diff), axis=1)
         return lut
 
     def search(self, xs: List[List[float]], k: int) -> SearchResult:
@@ -136,7 +136,7 @@ class IVFPQIndex(BaseIndex):
         for i in range(nq):
             q = xq[i]
             # Coarse probe
-            d2 = mx.sum((self._centroids - q[None, :]) * (self._centroids - q[None, :]), axis=1)
+        d2 = mx.sum(mx.square(self._centroids - q[None, :]), axis=1)
             probe = mx.argsort(d2)[: self._nprobe].tolist()
             # Accumulate candidates in MLX
             vals_accum: Optional[mx.array] = None
@@ -166,8 +166,9 @@ class IVFPQIndex(BaseIndex):
                     vals_accum = mx.concatenate([vals_accum, scores], axis=0)
                     ids_accum = mx.concatenate([ids_accum, ids_arr], axis=0)
             if vals_accum is None or ids_accum is None or int(vals_accum.shape[0]) == 0:
-                all_dists.append([float('inf')] * k)
-                all_ids.append([0] * k)
+                infv = mx.divide(mx.ones((k,), dtype=mx.float32), mx.zeros((k,), dtype=mx.float32))
+                all_dists.append(infv)
+                all_ids.append(mx.zeros((k,), dtype=mx.int32))
                 continue
             # Top-k smallest via negative + topk
             kk = k if k <= int(vals_accum.shape[0]) else int(vals_accum.shape[0])
@@ -175,9 +176,9 @@ class IVFPQIndex(BaseIndex):
             topv, topi = mx.topk(neg, kk, axis=0)
             sel_ids = ids_accum[topi]
             sel_vals = -topv
-            all_dists.append(sel_vals.tolist())
-            all_ids.append(sel_ids.tolist())
-        return SearchResult(distances=all_dists, labels=all_ids)
+            all_dists.append(sel_vals)
+            all_ids.append(sel_ids)
+        return SearchResult(distances=mx.stack(all_dists), indices=mx.stack(all_ids))
 
     def reset(self) -> None:
         super().reset()

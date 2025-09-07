@@ -92,17 +92,14 @@ class ScalarQuantizerIndex(BaseIndex):
         # TODO: Implement efficient distance computation with quantized vectors
         # For now, compute exact distances
         if self.metric_type == MetricType.L2:
-            distances = mx.sum((x.reshape(len(x), 1, -1) - self._codes) ** 2, axis=2)
+            distances = mx.sum(mx.square(x.reshape(len(x), 1, -1) - self._codes), axis=2)
         else:
             distances = -mx.matmul(x, self._codes.T)
             
         values, indices = mx.topk(-distances, k, axis=1)
         values = -values
             
-        return SearchResult(
-            distances=values.tolist(),
-            labels=indices.tolist()
-        )
+        return SearchResult(distances=values, indices=indices)
         
     def reset(self) -> None:
         """Reset the index."""
