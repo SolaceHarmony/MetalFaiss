@@ -28,7 +28,8 @@ from .svd_dispatch import choose_svd_impl
 from .kernels.gemm_kernels import gemm_av, gemm_at_b
 import os
 
-_COMPILED_MLX_ITER = None
+_COMPILED_MLX_ITER_CACHE: dict[tuple, object] = {}
+_COMPILED_ZSTEP_KERNEL_CACHE: dict[tuple, object] = {}
 
 def _mlx_power_iter_once(A: mx.array, V: mx.array) -> mx.array:
     """One power‑iteration step using MLX GEMMs.
@@ -43,6 +44,50 @@ def _mlx_power_iter_once(A: mx.array, V: mx.array) -> mx.array:
     Z = mx.matmul(mx.transpose(A), AV)
     Qz, _ = pure_mlx_qr(Z)
     return Qz
+
+
+def _get_compiled_mlx_iter(A: mx.array, V: mx.array):
+    """Return a compiled function for one MLX power-iteration step for given shapes.
+
+    Shapes must be stable across calls. Caches by (m,n,k,dtype,device).
+    """
+    m, n = int(A.shape[0]), int(A.shape[1])
+    k = int(V.shape[1])
+    key = (m, n, k, str(A.dtype), str(mx.default_device()))
+    fn = _COMPILED_MLX_ITER_CACHE.get(key)
+    if fn is None and hasattr(mx, "compile"):
+        fn = mx.compile(_mlx_power_iter_once)
+        _COMPILED_MLX_ITER_CACHE[key] = fn
+    return fn or _mlx_power_iter_once
+
+
+def _get_compiled_kernel_zstep(A: mx.array, V: mx.array, band_size: int | None):
+    """Return a compiled function Z = Aᵀ(A V) using kernel path (optional banding).
+
+    Compiles a wrapper to reduce Python overhead; custom Metal kernels inside
+    execute as-is. Caches by (m,n,k,band,dtype,device).
+    """
+    m, n = int(A.shape[0]), int(A.shape[1])
+    k = int(V.shape[1])
+    b = int(band_size or 0)
+    key = (m, n, k, b, str(A.dtype), str(mx.default_device()))
+    fn = _COMPILED_ZSTEP_KERNEL_CACHE.get(key)
+    if fn is None and hasattr(mx, "compile"):
+        if b > 0:
+            def zfun(X, W):
+                return _kernel_zstep_banded(X, W, b, None)
+        else:
+            def zfun(X, W):
+                B = gemm_av(X, W)
+                return gemm_at_b(X, B)
+        fn = mx.compile(zfun)
+        _COMPILED_ZSTEP_KERNEL_CACHE[key] = fn
+    if fn is None:
+        # Fallback to Python wrapper
+        if b > 0:
+            return lambda X, W: _kernel_zstep_banded(X, W, b, None)
+        return lambda X, W: gemm_at_b(X, gemm_av(X, W))
+    return fn
 
 
 def _kernel_zstep_banded(
@@ -131,13 +176,23 @@ def topk_svd(
     Qv, _ = pure_mlx_qr(V0)
     V = Qv[:, :k]  # (n, k)
 
-    # Subspace iteration: repeatedly apply (A^T A) to V and re-orthonormalize
-    for _ in range(max(1, iters)):
-        # Production: use tiled GEMM kernels for Z-step (AV then A^T B)
-        B = gemm_av(A, V)
-        Z = gemm_at_b(A, B)
-        Qz, _ = pure_mlx_qr(Z)
-        V = Qz[:, :k]
+    # Decide implementation when not forced
+    impl = "KERNEL_TILED" if use_kernel else choose_svd_impl(m, n, k)
+    use_compile = use_compile or (str(os.environ.get("METALFAISS_USE_COMPILE", "")).strip().lower() in {"1","true","yes","on"})
+
+    if impl == "MLX_MATMUL":
+        step = _get_compiled_mlx_iter(A, V) if use_compile else _mlx_power_iter_once
+        for _ in range(max(1, iters)):
+            V = step(A, V)[:, :k]
+    else:
+        # Kernel Z-step (optional banding); optionally compile the wrapper
+        zfun = _get_compiled_kernel_zstep(A, V, band_size) if use_compile else (
+            (lambda X, W: _kernel_zstep_banded(X, W, int(band_size), None)) if (band_size and band_size > 0) else (lambda X, W: gemm_at_b(X, gemm_av(X, W)))
+        )
+        for _ in range(max(1, iters)):
+            Z = zfun(A, V)
+            Qz, _ = pure_mlx_qr(Z)
+            V = Qz[:, :k]
 
     # Ritz values/vectors: compute U = A V, then singular values as norms
     AV = mx.matmul(A, V)    # (m, k)

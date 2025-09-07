@@ -149,6 +149,7 @@ High-level performance tuning for Metal kernels involves a few key areas. For a 
 
 - `mx.compile` can fuse MLX graphs (e.g., the MLX path of SVD Z‑step) and shrink Python overhead; shapes must be stable.
 - Compiling won’t change the inner body of a custom Metal kernel, but a compiled wrapper can still reduce launch overhead when driving many kernels.
+- For full patterns, caveats, and examples (including shapeless mode and CPU/GPU mixing), see `docs/mlx/Compile-Guide.md`.
 
 References
 

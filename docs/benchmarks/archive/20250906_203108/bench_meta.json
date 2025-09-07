@@ -1,0 +1,67 @@
+{
+  "timestamp": "2025-09-06T20:18:37",
+  "git_commit": "268496a",
+  "python": {
+    "version": "3.12.2",
+    "platform": "macOS-15.7-arm64-arm-64bit",
+    "machine": "arm64"
+  },
+  "mlx": {
+    "version": "0.29.0",
+    "device": "Apple M3 Ultra"
+  },
+  "benches": {
+    "qr": {
+      "labels": [
+        "MLX dot",
+        "Kernel simple",
+        "Kernel simd"
+      ],
+      "values_seconds": [
+        0.0004249169724062085,
+        0.0019684169674292207,
+        0.0003733749035745859
+      ],
+      "shape": {
+        "m": 4096,
+        "k": 128
+      }
+    },
+    "ivf": {
+      "labels": [
+        "Baseline MLX",
+        "Fused concat",
+        "Batched sameX"
+      ],
+      "values_seconds": [
+        0.02252833405509591,
+        0.02442841697484255,
+        0.001456499914638698
+      ],
+      "params": {
+        "d": 64,
+        "N": 32768,
+        "nlist": 128,
+        "Q": 16,
+        "nprobe": 8,
+        "k": 10
+      }
+    },
+    "orthogonality": {
+      "labels": [
+        "orthonormal_columns",
+        "orthogonalize_blocked",
+        "orthogonal_init"
+      ],
+      "values_seconds": [
+        0.04458141699433327,
+        0.03658499999437481,
+        0.38094000006094575
+      ],
+      "shape": {
+        "m": 1024,
+        "n": 256
+      }
+    }
+  }
+}
