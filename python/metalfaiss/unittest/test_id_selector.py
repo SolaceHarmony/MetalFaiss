@@ -10,7 +10,7 @@ of the original FAISS implementations, particularly around:
 """
 
 import unittest
-import numpy as np
+import mlx.core as mx
 from ..index.id_selector import (
     IDSelector,
     IDSelectorRange,

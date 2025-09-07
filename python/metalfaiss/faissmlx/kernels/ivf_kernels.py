@@ -295,45 +295,32 @@ def ivf_list_topk_l2(Q: mx.array, X: mx.array, ids: mx.array, k: int, tpb: Optio
 
 
 def ivf_list_topk_l2_chunked(Q: mx.array, X: mx.array, ids: mx.array, k: int, rows_per_chunk: int = 4096, tpb: Optional[int] = None) -> Tuple[mx.array, mx.array]:
-    """Chunked variant: split rows and merge top-k on host.
+    """Chunked variant: split rows and merge top-k on device.
 
-    Useful when lists are long; calls ivf_list_topk_l2 per chunk and merges
-    the partial results into a final top-k on host (k <= 32).
+    Calls ivf_list_topk_l2 per chunk, then merges partial (k) candidates
+    entirely on device via `device_topk_merge` (k <= 32).
     """
     m = int(X.shape[0])
-    kk = min(k, 32)
-    # Initialize with +inf
-    import math
-    best_vals = [math.inf] * kk
-    best_ids = [0] * kk
-
-    def merge(vals, ids):
-        nonlocal best_vals, best_ids
-        # vals, ids are MLX arrays length kk
-        lv = vals.tolist(); li = ids.tolist()
-        # naive merge (small k): insert each candidate
-        for v, i in zip(lv, li):
-            # skip if v is inf (unused slot)
-            if math.isinf(v):
-                continue
-            # if better than current worst, insert
-            worst_idx = max(range(kk), key=lambda t: best_vals[t])
-            if v < best_vals[worst_idx]:
-                best_vals[worst_idx] = v
-                best_ids[worst_idx] = i
-        # keep best_vals sorted for stability (optional)
-        order = sorted(range(kk), key=lambda t: best_vals[t])
-        best_vals = [best_vals[t] for t in order]
-        best_ids = [best_ids[t] for t in order]
+    kk = int(min(k, 32))
+    parts_vals: list[mx.array] = []
+    parts_ids: list[mx.array] = []
 
     for s in range(0, m, rows_per_chunk):
         e = min(m, s + rows_per_chunk)
         if e <= s:
             continue
         vals, oids = ivf_list_topk_l2(Q, X[s:e, :], ids[s:e], k, tpb=tpb)
-        merge(vals, oids)
+        parts_vals.append(vals)
+        parts_ids.append(oids)
 
-    return mx.array(best_vals, dtype=mx.float32), mx.array(best_ids, dtype=mx.int32)
+    if not parts_vals:
+        # Create +inf vector without Python floats: 1/0 → +inf (via mx.divide)
+        infv = mx.divide(mx.ones((kk,), dtype=mx.float32), mx.zeros((kk,), dtype=mx.float32))
+        return infv, mx.zeros((kk,), dtype=mx.int32)
+
+    V = mx.stack(parts_vals)  # (P,kk)
+    I = mx.stack(parts_ids)   # (P,kk)
+    return device_topk_merge(V, I, k)
 
 
 def ivf_list_topk_l2_batch(Q: mx.array, X: mx.array, ids: mx.array, k: int, tpb: Optional[int] = None) -> Tuple[mx.array, mx.array]:
@@ -409,7 +396,8 @@ def ivf_list_topk_l2_chunked_device_merge(Q: mx.array, X: mx.array, ids: mx.arra
         parts_vals.append(vals)
         parts_ids.append(oids)
     if not parts_vals:
-        return mx.full((kk,), float('inf'), dtype=mx.float32), mx.zeros((kk,), dtype=mx.int32)
+        infv = mx.divide(mx.ones((kk,), dtype=mx.float32), mx.zeros((kk,), dtype=mx.float32))
+        return infv, mx.zeros((kk,), dtype=mx.int32)
     V = mx.stack(parts_vals)  # (P,kk)
     I = mx.stack(parts_ids)   # (P,kk)
     return device_topk_merge(V, I, k)

@@ -6,7 +6,6 @@ with the original FAISS GPU implementation patterns.
 """
 
 import unittest
-import numpy as np
 import mlx.core as mx
 from typing import List, Tuple
 from ..faissmlx.ops import (
@@ -39,17 +38,16 @@ from ..faissmlx.gpu_kernels import (
     hamming_distance_kernel
 )
 
-def make_data(num: int, d: int, seed: int = 42) -> mx.array:
-    """Generate test data."""
-    np.random.seed(seed)
-    return array(np.random.rand(num, d).astype('float32'))
+from .mlx_test_utils import assert_array_equal, assert_allclose
 
-def make_binary_data(num: int, d: int, seed: int = 42) -> mx.array:
-    """Generate binary test data."""
-    np.random.seed(seed)
-    return array(
-        np.random.randint(0, 2, (num, d)).astype('uint8')
-    )
+
+def make_data(num: int, d: int) -> mx.array:
+    """Generate test data using MLX."""
+    return mx.random.uniform(shape=(num, d))
+
+def make_binary_data(num: int, d: int) -> mx.array:
+    """Generate binary test data using MLX."""
+    return mx.random.randint(0, 2, shape=(num, d), dtype=mx.uint8)
 
 class TestMLXBasics(unittest.TestCase):
     """Test basic MLX functionality."""
@@ -94,17 +92,11 @@ class TestMLXBasics(unittest.TestCase):
         
         # CPU
         c = matmul(a, b)
-        np.testing.assert_array_equal(
-            c.numpy(),
-            np.array([[19, 22], [43, 50]])
-        )
+        assert_array_equal(c, mx.array([[19, 22], [43, 50]]))
         
         # GPU
         c_gpu = gpu_matmul(a, b)
-        np.testing.assert_array_equal(
-            c_gpu.numpy(),
-            c.numpy()
-        )
+        assert_array_equal(c_gpu, c)
         
         # Batched
         batch_a = array([a.tolist(), a.tolist()])
@@ -141,16 +133,8 @@ class TestDistanceMetrics(unittest.TestCase):
         )
         
         # All should match
-        np.testing.assert_allclose(
-            dist_cpu.numpy(),
-            dist_gpu.numpy(),
-            rtol=1e-5
-        )
-        np.testing.assert_allclose(
-            dist_cpu.numpy(),
-            dist_kernel.numpy(),
-            rtol=1e-5
-        )
+        assert_allclose(dist_cpu, dist_gpu)
+        assert_allclose(dist_cpu, dist_kernel)
         
     def test_cosine_distance(self):
         """Test cosine distance computation."""
@@ -168,16 +152,8 @@ class TestDistanceMetrics(unittest.TestCase):
         )
         
         # All should match
-        np.testing.assert_allclose(
-            dist_cpu.numpy(),
-            dist_gpu.numpy(),
-            rtol=1e-5
-        )
-        np.testing.assert_allclose(
-            dist_cpu.numpy(),
-            dist_kernel.numpy(),
-            rtol=1e-5
-        )
+        assert_allclose(dist_cpu, dist_gpu)
+        assert_allclose(dist_cpu, dist_kernel)
 
 class TestBinaryOperations(unittest.TestCase):
     """Test binary vector operations."""
@@ -208,14 +184,8 @@ class TestBinaryOperations(unittest.TestCase):
         )
         
         # All should match
-        np.testing.assert_array_equal(
-            dist_cpu.numpy(),
-            dist_gpu.numpy()
-        )
-        np.testing.assert_array_equal(
-            dist_cpu.numpy(),
-            dist_kernel.numpy()
-        )
+        assert_array_equal(dist_cpu, dist_gpu)
+        assert_array_equal(dist_cpu, dist_kernel)
         
         # Verify against numpy
         for i in range(10):
@@ -253,17 +223,11 @@ class TestMemoryManagement(unittest.TestCase):
         
         # To GPU
         x_gpu = to_gpu(x)
-        np.testing.assert_array_equal(
-            x_gpu.numpy(),
-            x.numpy()
-        )
+        assert_array_equal(x_gpu, x)
         
         # Back to CPU
         x_cpu = from_gpu(x_gpu)
-        np.testing.assert_array_equal(
-            x_cpu.numpy(),
-            x.numpy()
-        )
+        assert_array_equal(x_cpu, x)
 
 if __name__ == '__main__':
     unittest.main()

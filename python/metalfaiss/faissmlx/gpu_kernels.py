@@ -10,7 +10,6 @@ optimized when MLX's GPU features are available.
 """
 
 import mlx.core as mx
-import numpy as np
 from typing import Tuple, Optional
 from dataclasses import dataclass
 from .ops import Device
@@ -91,10 +90,11 @@ def l2_distance_kernel(
         Distance matrix (n, m)
     """
     # TODO: Add optimized implementation
-    xx = mx.sum(x * x, axis=1, keepdims=True)
-    yy = mx.sum(y * y, axis=1)
+    xx = mx.sum(mx.square(x), axis=1, keepdims=True)
+    yy = mx.sum(mx.square(y), axis=1)
     xy = mx.matmul(x, y.T)
-    return xx + yy - 2 * xy
+    xy2 = mx.add(xy, xy)
+    return mx.subtract(mx.add(xx, yy), xy2)
 
 def cosine_distance_kernel(
     x: mx.array,
@@ -114,11 +114,13 @@ def cosine_distance_kernel(
         Distance matrix (n, m)
     """
     # TODO: Add optimized implementation
-    x_norm = mx.sum(x * x, axis=1, keepdims=True) ** 0.5
-    y_norm = mx.sum(y * y, axis=1, keepdims=True) ** 0.5
-    x = x / x_norm
-    y = y / y_norm
-    return 1 - mx.matmul(x, y.T)
+    x_norm = mx.sqrt(mx.sum(mx.square(x), axis=1, keepdims=True))
+    y_norm = mx.sqrt(mx.sum(mx.square(y), axis=1, keepdims=True))
+    x = mx.divide(x, x_norm)
+    y = mx.divide(y, y_norm)
+    dot = mx.matmul(x, y.T)
+    ones = mx.ones_like(dot)
+    return mx.subtract(ones, dot)
 
 def hamming_distance_kernel(
     x: mx.array,
@@ -138,10 +140,8 @@ def hamming_distance_kernel(
         Distance matrix (n, m) of uint32
     """
     # TODO: Add optimized implementation using SIMD
-    table = np.zeros(256, dtype=np.uint8)
-    for i in range(256):
-        table[i] = bin(i).count('1')
-    table = mx.array(table, dtype=mx.uint8)
+    table_vals = [bin(i).count('1') for i in range(256)]
+    table = mx.array(table_vals, dtype=mx.uint8)
     
     xor = x[:, None, :] ^ y[None, :, :]
     return mx.sum(table[xor], axis=2, dtype=mx.uint32)

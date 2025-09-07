@@ -73,7 +73,6 @@ def pack_params_uint32(params: dict) -> Tuple[mx.array, List[str]]:
 
 def pack_params_f32(params: dict) -> Tuple[mx.array, List[str]]:
     keys = sorted(params.keys())
-    vals = [float(params[k]) for k in keys]
+    vals = [params[k] for k in keys]
     buf = mx.array(vals, dtype=mx.float32)
     return buf, keys
-

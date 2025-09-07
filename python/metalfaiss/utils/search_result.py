@@ -5,7 +5,6 @@ search_result.py - Search result classes for MetalFaiss
 from dataclasses import dataclass
 from typing import List, Optional
 import mlx.core as mx
-import numpy as np
 
 @dataclass
 class SearchResult:
@@ -34,32 +33,7 @@ class SearchResult:
             indices=self.indices[idx]
         )
         
-    def to_numpy(self) -> tuple:
-        """Convert to numpy arrays.
-        
-        Returns:
-            Tuple of (distances, indices) as numpy arrays
-        """
-        return (
-            self.distances.numpy(),
-            self.indices.numpy()
-        )
-        
-    @classmethod
-    def from_numpy(cls, distances: np.ndarray, indices: np.ndarray) -> 'SearchResult':
-        """Create from numpy arrays.
-        
-        Args:
-            distances: Distances array
-            indices: Indices array
-            
-        Returns:
-            SearchResult object
-        """
-        return cls(
-            distances=mx.array(distances),
-            indices=mx.array(indices)
-        )
+    # NumPy conversion helpers intentionally omitted in pure MLX build.
 
 @dataclass
 class SearchRangeResult:
@@ -93,40 +67,7 @@ class SearchRangeResult:
         """
         return (self.distances[idx], self.indices[idx])
         
-    def to_numpy(self) -> tuple:
-        """Convert to numpy arrays.
-        
-        Returns:
-            Tuple of (distances list, indices list, lims array) as numpy
-        """
-        return (
-            [d.numpy() for d in self.distances],
-            [i.numpy() for i in self.indices],
-            self.lims.numpy()
-        )
-        
-    @classmethod
-    def from_numpy(
-        cls,
-        distances: List[np.ndarray],
-        indices: List[np.ndarray],
-        lims: np.ndarray
-    ) -> 'SearchRangeResult':
-        """Create from numpy arrays.
-        
-        Args:
-            distances: List of distances arrays
-            indices: List of indices arrays
-            lims: Limits array
-            
-        Returns:
-            SearchRangeResult object
-        """
-        return cls(
-            distances=[mx.array(d) for d in distances],
-            indices=[mx.array(i) for i in indices],
-            lims=mx.array(lims)
-        )
+    # NumPy conversion helpers intentionally omitted in pure MLX build.
         
     def get_total_size(self) -> int:
         """Get total number of results across all queries."""

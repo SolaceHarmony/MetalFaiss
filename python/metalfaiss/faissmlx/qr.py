@@ -50,10 +50,12 @@ def pure_mlx_qr(A: mx.array) -> Tuple[mx.array, mx.array]:
             v = update_vector(Qk, c2, v)
             R[:k, k] = c1 + c2
         # Normalize
-        rkk = mx.sqrt(mx.sum(v * v))
+        rkk = mx.sqrt(mx.sum(mx.square(v)))
         # Avoid zero division; if zero, leave column as zeros
-        inv = mx.where(rkk > 0, 1.0 / rkk, 0.0)
-        qk = v * inv
+        ones = mx.ones_like(rkk)
+        zeros = mx.zeros_like(rkk)
+        inv = mx.where(rkk > 0, mx.divide(ones, rkk), zeros)
+        qk = mx.multiply(v, inv)
         Q[:, k] = qk
         R[k, k] = rkk
 

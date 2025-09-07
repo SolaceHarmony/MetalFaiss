@@ -9,7 +9,7 @@ These tests verify index functionality using MLX, particularly focusing on:
 """
 
 import unittest
-import numpy as np
+from .mlx_test_utils import assert_array_equal, assert_allclose
 import mlx.core as mx
 from typing import List, Tuple
 from ..faissmlx.ops import (
@@ -29,17 +29,13 @@ from ..index.ivf_flat_index import IVFFlatIndex
 from ..index.binary_flat_index import BinaryFlatIndex
 from ..index.binary_ivf_index import BinaryIVFIndex
 
-def make_data(num: int, d: int, seed: int = 42) -> mx.array:
+def make_data(num: int, d: int) -> mx.array:
     """Generate test data."""
-    np.random.seed(seed)
-    return array(np.random.rand(num, d).astype('float32'))
+    return array(mx.random.uniform(shape=(num, d)).astype(mx.float32).tolist())
 
-def make_binary_data(num: int, d: int, seed: int = 42) -> mx.array:
+def make_binary_data(num: int, d: int) -> mx.array:
     """Generate binary test data."""
-    np.random.seed(seed)
-    return array(
-        np.random.randint(0, 2, (num, d)).astype('uint8')
-    )
+    return array(mx.random.randint(0, 2, shape=(num, d), dtype=mx.uint8).tolist())
 
 class TestIVFSearch(unittest.TestCase):
     """Test IVF search functionality."""
@@ -80,8 +76,8 @@ class TestIVFSearch(unittest.TestCase):
         d2, i2 = index.search(self.xq, self.k)
         
         # Results should match
-        np.testing.assert_array_equal(i1, i2)
-        np.testing.assert_allclose(d1, d2, rtol=1e-5)
+        assert_array_equal(i1, i2)
+        assert_allclose(d1, d2)
         
     def test_coarse_quantizer(self):
         """Test coarse quantizer integration."""
@@ -141,8 +137,8 @@ class TestBinaryIVFSearch(unittest.TestCase):
         d2, i2 = index.search(self.xq, self.k)
         
         # Results should match
-        np.testing.assert_array_equal(i1, i2)
-        np.testing.assert_array_equal(d1, d2)
+        assert_array_equal(i1, i2)
+        assert_array_equal(d1, d2)
         
     def test_coarse_quantizer(self):
         """Test coarse quantizer integration."""
@@ -194,8 +190,8 @@ class TestIndexTransfer(unittest.TestCase):
         d_gpu, i_gpu = index_gpu.search(self.xq, self.k)
         
         # Results should match
-        np.testing.assert_array_equal(i_cpu, i_gpu)
-        np.testing.assert_allclose(d_cpu, d_gpu, rtol=1e-5)
+        assert_array_equal(i_cpu, i_gpu)
+        assert_allclose(d_cpu, d_gpu)
         
     def test_ivf_transfer(self):
         """Test IVF index transfer."""

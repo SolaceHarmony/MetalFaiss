@@ -17,11 +17,7 @@ import unittest
 from typing import Tuple
 
 import mlx.core as mx
-
-try:
-    import numpy as np
-except Exception:  # pragma: no cover
-    np = None  # type: ignore
+import random
 
 try:  # optional torch
     import torch
@@ -62,28 +58,18 @@ def _torch_device():
 
 def _make_inputs(m: int, n: int, k: int) -> Tuple[mx.array, mx.array, torch.Tensor | None, torch.Tensor | None]:
     """Create A (m,n), V (n,k) as MLX arrays and optional Torch tensors with same data."""
-    if np is not None and _HAVE_TORCH:
-        rng = np.random.default_rng(123)
-        A_np = rng.standard_normal(size=(m, n), dtype=np.float32)
-        V_np = rng.standard_normal(size=(n, k), dtype=np.float32)
-        A_mx = mx.array(A_np)
-        V_mx = mx.array(V_np)
-        dev = _torch_device()
-        if dev is not None:
-            A_t = torch.from_numpy(A_np.copy()).to(dev)
-            V_t = torch.from_numpy(V_np.copy()).to(dev)
-        else:
-            A_t = None; V_t = None
-        return A_mx, V_mx, A_t, V_t
-    # Fallback: generate separately
-    A_mx = mx.random.normal(shape=(m, n)).astype(mx.float32)
-    V_mx = mx.random.normal(shape=(n, k)).astype(mx.float32)
+    # Deterministic CPU-generated lists to avoid reading MLX buffers
+    r = random.Random(1234567 + m*31 + n*17 + k*13)
+    A_list = [[float(r.uniform(-1.0, 1.0)) for _ in range(n)] for __ in range(m)]
+    V_list = [[float(r.uniform(-1.0, 1.0)) for _ in range(k)] for __ in range(n)]
+    A_mx = mx.array(A_list, dtype=mx.float32)
+    V_mx = mx.array(V_list, dtype=mx.float32)
     A_t = V_t = None
     if _HAVE_TORCH:
         dev = _torch_device()
         if dev is not None:
-            A_t = torch.randn((m, n), dtype=torch.float32, device=dev)
-            V_t = torch.randn((n, k), dtype=torch.float32, device=dev)
+            A_t = torch.tensor(A_list, dtype=torch.float32, device=dev)
+            V_t = torch.tensor(V_list, dtype=torch.float32, device=dev)
     return A_mx, V_mx, A_t, V_t
 
 
@@ -183,4 +169,3 @@ class TestTorchVsMLXBench(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

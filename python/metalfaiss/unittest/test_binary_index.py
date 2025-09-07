@@ -3,7 +3,6 @@ test_binary_index.py - Tests for binary indices
 """
 
 import unittest
-import numpy as np
 import mlx.core as mx
 from typing import List, Optional, Tuple
 
@@ -18,11 +17,7 @@ class TestBinaryIndex(unittest.TestCase):
         """Set up test data."""
         self.d = 64  # Must be multiple of 8
         self.n = 100
-        np.random.seed(42)
-        self.x = mx.array(
-            np.random.randint(0, 2, (self.n, self.d)),
-            dtype=np.uint8
-        )
+        self.x = mx.random.randint(0, 2, shape=(self.n, self.d), dtype=mx.uint8)
         
     def test_base_index(self):
         """Test base binary index."""

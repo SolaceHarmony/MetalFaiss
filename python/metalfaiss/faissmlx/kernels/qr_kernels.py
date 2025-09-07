@@ -58,13 +58,9 @@ _COL_DOT_SIMD_SRC = r"""
     for (uint i = lane; i < m; i += WARP) {
         partial = fma(Q[i * k + col], v[i], partial);
     }
-    // Reduce within the warp via threadgroup memory
-    threadgroup float partials[WARP];
-    partials[lane] = partial;
-    threadgroup_barrier(mem_flags::mem_threadgroup);
+    // Reduce within the warp via simd_sum; lane 0 writes the result
+    float sum = simd_sum(partial);
     if (lane == 0u) {
-        float sum = 0.0f;
-        for (uint l = 0; l < WARP; ++l) sum += partials[l];
         out[col] = sum;
     }
 """;
