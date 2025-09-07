@@ -24,6 +24,8 @@ Attribution
 
 How this repo applies the patterns
 - docs/mlx/Comprehensive-MLX-Metal-Guide.md — The definitive guide to writing, launching, and optimizing kernels with MLX in this project.
+- docs/mlx/MLX-for-NumPy-Users.md — Practical mapping of NumPy idioms to MLX with gotchas.
+- docs/mlx/Patterns.md — Quick cheat sheet for comparisons, casts, modulo, boolean reductions, and top‑k.
 - docs/research/Journal.md — A log of experiments, benchmarks, and design rationale for our kernels.
 - docs/mlx/Kernel-Guide.md — Working kernel snippets (body+header), grid/tg selection, autoswitch ideas.
 - docs/mlx/Fastest-Patterns.md — Copyable recipes for the fastest patterns (fused IVF scan+select, warp reductions, tiling, streams).

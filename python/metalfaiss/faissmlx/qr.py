@@ -48,7 +48,7 @@ def pure_mlx_qr(A: mx.array) -> Tuple[mx.array, mx.array]:
             v = update_vector(Qk, c1, v)
             c2 = project_coeffs(Qk, v)
             v = update_vector(Qk, c2, v)
-            R[:k, k] = c1 + c2
+            R[:k, k] = mx.add(c1, c2)
         # Normalize
         rkk = mx.sqrt(mx.sum(mx.square(v)))
         # Avoid zero division; if zero, leave column as zeros

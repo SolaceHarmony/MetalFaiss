@@ -76,7 +76,15 @@ def _scan_ast_for_ops(path: Path, lines: list[str]):
                     return
                 # Only flag when one of the operands syntactically involves mx.*
                 if _has_mx(node.left) or _has_mx(node.right):
-                    findings.append((node.lineno, f'py_op:{op}', line.strip()))
+                    if op in {'&', '|', '^'}:
+                        sugg = {
+                            '&': 'mx.bitwise_and(a, b)',
+                            '|': 'mx.bitwise_or(a, b)',
+                            '^': 'mx.bitwise_xor(a, b)'
+                        }[op]
+                        findings.append((node.lineno, f'py_bitop:{op}', f"{line.strip()}    # suggest: {sugg}"))
+                    else:
+                        findings.append((node.lineno, f'py_op:{op}', line.strip()))
             self.generic_visit(node)
 
         def visit_UnaryOp(self, node: ast.UnaryOp):
@@ -87,6 +95,10 @@ def _scan_ast_for_ops(path: Path, lines: list[str]):
                     return
                 if _line_uses_mx(line):
                     findings.append((node.lineno, 'py_op:neg', line.strip()))
+            if isinstance(node.op, ast.Invert):
+                if _has_mx(node.operand):
+                    line = lines[node.lineno - 1]
+                    findings.append((node.lineno, 'py_bitop:~', f"{line.strip()}    # suggest: mx.bitwise_not(x)"))
             self.generic_visit(node)
 
         def visit_Call(self, node: ast.Call):
@@ -177,6 +189,14 @@ def main():
                     continue
                 if rx.search(line):
                     print(f"{path}:{i}:{key}: {s}")
+
+            # Device hints: discourage explicit CPU streams in hot paths
+            if 'stream=' in line and 'mx.cpu' in line:
+                print(f"{path}:{i}:cpu_stream: {s}    # suggest: prefer Metal stream or default device; see docs/mlx/using_streams.md")
+            if 'Device.CPU' in line:
+                print(f"{path}:{i}:device_cpu: {s}    # suggest: avoid forcing CPU; rely on default Metal device when available")
+            if 'mx.cpu' in line and 'stream=' not in line:
+                print(f"{path}:{i}:cpu_ref: {s}    # suggest: avoid explicit mx.cpu for compute; see docs/mlx/devices_and_streams.md")
 
 if __name__ == '__main__':
     main()
