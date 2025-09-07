@@ -1,0 +1,4 @@
+label,value
+Baseline MLX,0.02252833405509591
+Fused concat,0.02442841697484255
+Batched sameX,0.001456499914638698
