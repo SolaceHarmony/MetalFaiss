@@ -35,7 +35,7 @@ class AnyIndex(BaseIndex):
     def reset(self) -> None:
         self.index_pointer.reset()
         
-    def reconstruct(self, key: int) -> List[float]:
+    def reconstruct(self, key: int) -> mx.array:
         return self.index_pointer.reconstruct(key)
         
     def save_to_file(self, filename: str) -> None:

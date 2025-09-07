@@ -166,7 +166,7 @@ class BaseBinaryIndex(ABC):
         """
         pass
         
-    def reconstruct(self, key: int) -> List[int]:
+    def reconstruct(self, key: int) -> mx.array:
         """Reconstruct vector from storage.
         
         Args:
@@ -188,7 +188,7 @@ class BaseBinaryIndex(ABC):
         return self._reconstruct(key)
         
     @abstractmethod
-    def _reconstruct(self, key: int) -> List[int]:
+    def _reconstruct(self, key: int) -> mx.array:
         """Reconstruct implementation.
         
         Args:

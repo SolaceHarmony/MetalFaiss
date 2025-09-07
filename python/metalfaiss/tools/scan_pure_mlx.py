@@ -31,6 +31,8 @@ OPS = {
     ast.Sub: '-',
     ast.Mult: '*',
     ast.Div: '/',
+    ast.FloorDiv: '//',
+    ast.Mod: '%',
     ast.Pow: '**',
     ast.MatMult: '@',
 }
@@ -98,8 +100,41 @@ def _scan_ast_for_ops(path: Path, lines: list[str]):
                 for arg in node.args:
                     if _has_mx(arg):
                         line = lines[node.lineno - 1]
-                        findings.append((node.lineno, f'py_cast_mx:{name}', line.strip()))
+                        if name == 'float':
+                            hint = 'suggest: on-device: expr.astype(mx.float32); boundary: float(expr.astype(mx.float32))'
+                        else:
+                            hint = 'suggest: on-device: expr.astype(mx.int32); boundary (index): int(expr.astype(mx.int32))'
+                        findings.append((node.lineno, f'py_cast_mx:{name}', f"{line.strip()}    # {hint}"))
                         break
+            if name == 'bool':
+                for arg in node.args:
+                    if _has_mx(arg):
+                        line = lines[node.lineno - 1]
+                        findings.append((node.lineno, 'py_cast_mx:bool', f"{line.strip()}    # suggest: use mx.any(expr) or mx.all(expr), not bool(expr)"))
+                        break
+            self.generic_visit(node)
+
+        def visit_Compare(self, node: ast.Compare):
+            # Flag Python comparisons on mx.* expressions; suggest MLX patterns
+            # Supports chained comparisons (a < b < c). We flag each operator.
+            ops_map = {
+                ast.Eq: ("==", "mx.equal(a, b)  (Alt: mx.equal(a, mx.array(0, dtype=a.dtype)))"),
+                ast.NotEq: ("!=", "mx.not_equal(a, b)"),
+                ast.Lt: ("<", "mx.less(a, b)"),
+                ast.LtE: ("<=", "mx.less_equal(a, b)"),
+                ast.Gt: (">", "mx.greater(a, b)"),
+                ast.GtE: (">=", "mx.greater_equal(a, b)"),
+            }
+            # Only flag if any side syntactically involves mx.*
+            has_mx_left = _has_mx(node.left)
+            has_mx_any = has_mx_left or any(_has_mx(c) for c in node.comparators)
+            if has_mx_any:
+                line = lines[node.lineno - 1].strip()
+                for op in node.ops:
+                    sym, sugg = ops_map.get(type(op), (None, None))
+                    if sym is None:
+                        continue
+                    findings.append((node.lineno, f'py_cmp:{sym}', f"{line}    # suggest: {sugg}"))
             self.generic_visit(node)
 
     V().visit(tree)
@@ -109,9 +144,15 @@ def main():
     for path in SRC.rglob('*.py'):
         if 'unittest' in path.parts:
             continue
-        # Skip demo helpers by default
+        # Skip demo/experiments/helpers by default
         if path.name in {'demo_utils.py', 'setup.py'}:
             continue
+        if 'experiments' in path.parts:
+            continue
+        # Temporary suppression while HNSW is being refactored to array-native
+        if any(p in path.as_posix() for p in [
+            '/index/hnsw.py', '/index/hnsw_index.py', '/index/binary_hnsw_index.py']):
+            pass  # do not early-continue; still scan for non-cast ops
         text = path.read_text(encoding='utf-8', errors='ignore')
         lines = text.splitlines()
         in_doc = False

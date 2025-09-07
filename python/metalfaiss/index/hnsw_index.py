@@ -69,7 +69,7 @@ class HNSWIndex(BaseIndex):
         # Process in batches
         for i in range(0, n, batch_size):
             batch = vectors[i:min(i + batch_size, n)]
-            if self.metric_type == MetricType.L2:
+            if self._metric_type == MetricType.L2:
                 # Use broadcasting for L2 computation
                 diff = mx.subtract(batch, query.reshape(1, -1))
                 batch_dists = mx.sum(mx.multiply(diff, diff), axis=1)
@@ -112,7 +112,7 @@ class HNSWIndex(BaseIndex):
             vec1 = query if i == len(self._vectors) else self._vectors[i]
             vec2 = self._vectors[j]
             
-            if self.metric_type == MetricType.L2:
+            if self._metric_type == MetricType.L2:
                 diff = mx.subtract(vec1, vec2)
                 dist = float(mx.sum(mx.multiply(diff, diff)).astype(mx.float32))
             else:  # Inner product
@@ -126,7 +126,7 @@ class HNSWIndex(BaseIndex):
         
     def train(self, xs: List[List[float]]) -> None:
         """Train is a no-op for HNSW index."""
-        self._is_trained = True
+        self.is_trained = True
         
     def add(self, xs: List[List[float]], ids: Optional[List[int]] = None) -> None:
         """Add vectors to the index.
@@ -148,23 +148,25 @@ class HNSWIndex(BaseIndex):
         else:
             self._vectors = mx.concatenate([self._vectors, x])
             
-        # Add vectors to HNSW structure in batches
-        batch_size = 1000  # Adjust based on memory constraints
-        for i in range(0, len(x), batch_size):
-            batch = x[i:i + batch_size]
-            
-            # Process each vector in batch
-            for j, vec in enumerate(batch):
-                vertex_id = self._ntotal + i + j
-                level = self.hnsw.random_level()
-                
-                # Create distance computer for this vector
-                dist_computer = self._make_dist_computer(vec)
-                
-                # Add to HNSW structure
-                self.hnsw.add_vertex(vertex_id, level, dist_computer)
-                
-        self._ntotal += len(x)
+        # Rebuild a simple level-0 kNN graph for current vectors
+        self.ntotal += len(x)
+        n = int(self._vectors.shape[0])
+        M0 = self.hnsw.M0
+        # Compute distances
+        diff = self._vectors[:, None, :] - self._vectors[None, :, :]
+        d2 = mx.sum(mx.square(diff), axis=2)
+        # Mask self-distances with +inf
+        inf = mx.divide(mx.ones((), dtype=mx.float32), mx.zeros((), dtype=mx.float32))
+        d2 = mx.where(mx.eye(n, dtype=mx.float32) > 0, inf, d2)
+        # Get top M0 neighbors for each row
+        order = mx.argsort(d2, axis=1)[:, :M0]
+        # Fill HNSW arrays
+        self.hnsw.levels = mx.zeros((n,), dtype=mx.int32)
+        # Offsets point into a flat neighbor array
+        self.hnsw.offsets = mx.arange(0, n * M0, M0, dtype=mx.int64)
+        self.hnsw.neighbors = order.reshape((n * M0,)).astype(mx.int32)
+        self.hnsw.entry_point = 0
+        self.hnsw.max_level = 0
         
     def search(self, xs: List[List[float]], k: int) -> SearchResult:
         """Search for nearest neighbors.
@@ -184,45 +186,31 @@ class HNSWIndex(BaseIndex):
             raise ValueError(f"Query dimension {x.shape[1]} does not match index dimension {self.d}")
             
         k = min(k, self.ntotal)
-        
-        # Process queries in batches
-        batch_size = 100  # Adjust based on memory constraints
-        all_distances = []
-        all_labels = []
-        
-        for i in range(0, len(x), batch_size):
-            batch = x[i:i + batch_size]
-            batch_distances = []
-            batch_labels = []
-            
-            # Process each query in batch
-            for query in batch:
-                dist_computer = self._make_dist_computer(query)
-                
-                # Search HNSW structure
-                results = self.hnsw.search(
-                    len(self._vectors),
-                    max(self.hnsw.efSearch, k),
-                    dist_computer
-                )
-                
-                # Extract top k results
-                distances = []
-                labels = []
-                for dist, label in results[:k]:
-                    distances.append(dist)
-                    labels.append(label)
-                    
-                batch_distances.append(distances)
-                batch_labels.append(labels)
-                
-            all_distances.extend(batch_distances)
-            all_labels.extend(batch_labels)
-            
-        return SearchResult(
-            distances=all_distances,
-            labels=all_labels
-        )
+
+        # Array-native level-0 search per query using MLX; returns MLX arrays
+        ef = max(self.hnsw.efSearch, k)
+
+        @mx.custom_function
+        def _one(q):
+            return self.hnsw.search_level0_array(q, ef=ef, vectors=self._vectors, metric=self._metric_type, k=k)
+
+        @_one.vmap
+        def _one_vmap(inputs, axes):
+            (Q,), (ax,) = inputs, axes
+            # We only support batching on axis 0
+            if ax is None:
+                d, i = _one(Q)
+                return (d, i), None
+            n = int(Q.shape[0])
+            Ds = []
+            Is = []
+            for iidx in range(n):
+                d, ii = self.hnsw.search_level0_array(Q[iidx], ef=ef, vectors=self._vectors, metric=self._metric_type, k=k)
+                Ds.append(d); Is.append(ii)
+            return (mx.stack(Ds, axis=0), mx.stack(Is, axis=0)), 0
+
+        D, I = mx.vmap(_one, in_axes=0, out_axes=(0, 0))(x)
+        return SearchResult(distances=D, indices=I)
         
     def reconstruct(self, key: int) -> List[float]:
         """Reconstruct vector from storage.

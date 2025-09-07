@@ -121,7 +121,7 @@ class Index(ABC):
         """Reset the index."""
         pass
 
-    def reconstruct(self, idx: int) -> List[float]:
+    def reconstruct(self, idx: int) -> mx.array:
         """Reconstruct vector at index.
         
         Args:
@@ -139,7 +139,7 @@ class Index(ABC):
             "This index type does not support vector reconstruction."
         )
 
-    def reconstruct_n(self, i0: int, ni: int) -> List[List[float]]:
+    def reconstruct_n(self, i0: int, ni: int) -> mx.array:
         """Reconstruct range of vectors.
         
         Args:
@@ -149,7 +149,7 @@ class Index(ABC):
         Returns:
             Reconstructed vectors
         """
-        return [self.reconstruct(i) for i in range(i0, i0 + ni)]
+        return mx.stack([self.reconstruct(i) for i in range(i0, i0 + ni)])
 
     def search_and_reconstruct(
         self,

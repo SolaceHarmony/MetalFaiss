@@ -71,38 +71,36 @@ class RemapDimensionsTransform(BaseVectorTransform):
             
         self._is_trained = True
         
-    def _create_uniform_map(self) -> List[int]:
+    def _create_uniform_map(self) -> mx.array:
         """Create uniform dimension mapping.
         
         Returns:
-            List mapping output dims to input dims, distributing uniformly
+            mx.array mapping output dims to input dims, distributing uniformly
         """
         if self.d_out <= self.d_in:
             # Subsample input dimensions
-            step = self.d_in / self.d_out
-            return [int(i * step) for i in range(self.d_out)]
+            step = mx.array(self.d_in / self.d_out)
+            return (mx.arange(self.d_out) * step).astype(mx.int32)
         else:
             # Repeat input dimensions with padding
             repeats = self.d_out // self.d_in
             remainder = self.d_out % self.d_in
-            mapping = []
-            for _ in range(repeats):
-                mapping.extend(range(self.d_in))
-            mapping.extend(range(remainder))
+            mapping = mx.concatenate([mx.arange(self.d_in)] * repeats)
+            mapping = mx.concatenate([mapping, mx.arange(remainder)])
             return mapping
             
-    def _create_prefix_map(self) -> List[int]:
+    def _create_prefix_map(self) -> mx.array:
         """Create prefix dimension mapping.
         
         Returns:
-            List mapping output dims to input dims, taking prefix
+            mx.array mapping output dims to input dims, taking prefix
         """
         if self.d_out <= self.d_in:
             # Take first d_out dimensions
-            return list(range(self.d_out))
+            return mx.arange(self.d_out)
         else:
             # Take all input dims then pad with -1
-            return list(range(self.d_in)) + [-1] * (self.d_out - self.d_in)
+            return mx.concatenate([mx.arange(self.d_in), mx.full((self.d_out - self.d_in,), -1)])
             
     def apply_noalloc(self, x: mx.array, xt: mx.array) -> None:
         """Apply dimension remapping.
@@ -120,7 +118,7 @@ class RemapDimensionsTransform(BaseVectorTransform):
                 # Set to 0
                 xt[:, i] = 0
                 
-    def reverse_transform(self, xs: List[List[float]]) -> List[List[float]]:
+    def reverse_transform(self, xs: mx.array) -> mx.array:
         """Reverse transform (only for permutation mappings).
         
         Args:
@@ -146,12 +144,11 @@ class RemapDimensionsTransform(BaseVectorTransform):
                 reverse_map[src_dim] = i
                 
         # Apply reverse mapping
-        x = mx.array(xs)
-        xt = mx.zeros((len(x), self.d_in))
+        xt = mx.zeros((len(xs), self.d_in))
         for i, src_dim in enumerate(reverse_map):
-            xt[:, i] = x[:, src_dim]
+            xt[:, i] = xs[:, src_dim]
             
-        return xt.tolist()
+        return xt
         
     def check_identical(self, other: BaseVectorTransform) -> None:
         """Check if transforms are identical.
@@ -207,7 +204,7 @@ class NormalizationTransform(BaseVectorTransform):
         # Normalize
         xt[:] = mx.divide(x, norms.reshape(-1, 1))
         
-    def reverse_transform(self, xs: List[List[float]]) -> List[List[float]]:
+    def reverse_transform(self, xs: mx.array) -> mx.array:
         """Reverse transform (identity since norm is lost).
         
         Args:
@@ -253,13 +250,12 @@ class CenteringTransform(BaseVectorTransform):
         self.mean: Optional[mx.array] = None
         self._is_trained = False
         
-    def train(self, xs: List[List[float]]) -> None:
+    def train(self, x: mx.array) -> None:
         """Train transform by computing mean.
         
         Args:
             xs: Training vectors
         """
-        x = mx.array(xs)
         self.mean = mx.mean(x, axis=0)
         self._is_trained = True
         
@@ -276,9 +272,9 @@ class CenteringTransform(BaseVectorTransform):
         if not self.is_trained or self.mean is None:
             raise RuntimeError("Transform must be trained before applying")
             
-        xt[:] = x - self.mean
+        xt[:] = mx.subtract(x, self.mean)
         
-    def reverse_transform(self, xs: List[List[float]]) -> List[List[float]]:
+    def reverse_transform(self, xs: mx.array) -> mx.array:
         """Reverse transform by adding mean back.
         
         Args:
@@ -293,8 +289,7 @@ class CenteringTransform(BaseVectorTransform):
         if not self.is_trained or self.mean is None:
             raise RuntimeError("Transform must be trained before reversing")
             
-        x = mx.array(xs)
-        return (x + self.mean).tolist()
+        return mx.add(xs, self.mean)
         
     def check_identical(self, other: BaseVectorTransform) -> None:
         """Check if transforms are identical.
