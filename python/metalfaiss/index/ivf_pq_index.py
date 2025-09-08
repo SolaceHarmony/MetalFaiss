@@ -19,6 +19,7 @@ from .product_quantizer import ProductQuantizer
 from ..types.metric_type import MetricType
 from ..utils.search_result import SearchResult
 from ..utils.sorting import mlx_topk
+from ..faissmlx.device_guard import require_gpu
 
 
 class IVFPQIndex(BaseIndex):
@@ -66,15 +67,18 @@ class IVFPQIndex(BaseIndex):
             labels = mx.argmin(d2, axis=1)
             newc = []
             for j in range(k):
-                mask = labels == j
-                if mx.sum(mask) > 0:
-                    newc.append(mx.mean(x[mask], axis=0))
-                else:
-                    newc.append(cent[j])
+                mask = mx.equal(labels, mx.array(j, dtype=labels.dtype))
+                cnt = mx.sum(mask)
+                sumj = mx.sum(mx.where(mask[:, None], x, mx.zeros_like(x)), axis=0)
+                denom = mx.maximum(cnt, mx.array(1, dtype=cnt.dtype))
+                meanj = mx.divide(sumj, denom)
+                use_mean = mx.greater(cnt, mx.array(0, dtype=cnt.dtype))
+                newc.append(mx.where(use_mean, meanj, cent[j]))
             cent = mx.stack(newc)
         return cent
 
     def train(self, xs: List[List[float]]) -> None:
+        require_gpu("IVFPQIndex.train")
         if not xs:
             raise ValueError("Empty training data")
         x = mx.array(xs, dtype=mx.float32)
@@ -84,7 +88,7 @@ class IVFPQIndex(BaseIndex):
         self._centroids = self._kmeans(x, self._nlist)
         # Load quantizer with centroids
         self._quantizer.reset()
-        self._quantizer.add(self._centroids.tolist())
+        self._quantizer.add(self._centroids)
         # Compute residuals for training PQ
         d2 = mx.sum(mx.square(mx.subtract(x[:, None, :], self._centroids[None, :, :])), axis=2)
         labels = mx.argmin(d2, axis=1)
@@ -95,6 +99,7 @@ class IVFPQIndex(BaseIndex):
         self.is_trained = True
 
     def add(self, xs: List[List[float]], ids: Optional[List[int]] = None) -> None:
+        require_gpu("IVFPQIndex.add")
         if not self.is_trained:
             raise RuntimeError("Train index before adding vectors")
         x = mx.array(xs, dtype=mx.float32)
@@ -126,6 +131,7 @@ class IVFPQIndex(BaseIndex):
         return lut
 
     def search(self, xs: List[List[float]], k: int) -> SearchResult:
+        require_gpu("IVFPQIndex.search")
         if not self.is_trained:
             raise RuntimeError("Train index before search")
         xq = mx.array(xs, dtype=mx.float32)

@@ -122,7 +122,7 @@ class ProductQuantizerIndex(BaseIndex):
         values, indices = mlx_topk(distances, k, axis=1, largest=False)
         return SearchResult(distances=values, indices=indices)
         
-    def reconstruct(self, key: int) -> List[float]:
+    def reconstruct(self, key: int) -> mx.array:
         """Reconstruct vector from its PQ code.
         
         Args:
@@ -134,4 +134,4 @@ class ProductQuantizerIndex(BaseIndex):
         if key < 0 or key >= self.ntotal:
             raise ValueError(f"Invalid key {key}")
             
-        return self.pq.decode(self._codes[key:key+1])[0].tolist()
+        return self.pq.decode(self._codes[key:key+1])[0]

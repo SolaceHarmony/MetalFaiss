@@ -64,7 +64,7 @@ class TestSVDVariants(unittest.TestCase):
         )
 
         for r in [r0, r0c, r1, r2, r3]:
-            self.assertTrue(bool(mx.all(r <= mx.array(0.6, dtype=mx.float32))))
+            self.assertTrue(bool(mx.all(mx.less_equal(r, mx.array(0.6, dtype=mx.float32))).item()))  # boundary-ok
 
     def test_small(self):
         self._run_case(256, 128, 16, band=8, streams=4)

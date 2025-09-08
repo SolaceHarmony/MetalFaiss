@@ -161,23 +161,23 @@ def gpu_hamming_distances(x: mx.array, y: mx.array) -> mx.array:
     
     # Compute XOR then lookup Hamming weights
     # TODO: Add optimized implementation when MLX adds GPU-specific ops
-    xor = x[:, None, :] ^ y[None, :, :]
+    xor = mx.bitwise_xor(x[:, None, :], y[None, :, :])
     return mx.sum(table[xor], axis=2, dtype=mx.uint32)
 
 def gpu_binary_and(x: mx.array, y: mx.array) -> mx.array:
     """GPU-optimized binary AND."""
     # TODO: Add optimized implementation
-    return x & y
+    return mx.bitwise_and(x, y)
 
 def gpu_binary_or(x: mx.array, y: mx.array) -> mx.array:
     """GPU-optimized binary OR."""
     # TODO: Add optimized implementation
-    return x | y
+    return mx.bitwise_or(x, y)
 
 def gpu_binary_xor(x: mx.array, y: mx.array) -> mx.array:
     """GPU-optimized binary XOR."""
     # TODO: Add optimized implementation
-    return x ^ y
+    return mx.bitwise_xor(x, y)
 
 def gpu_popcount(x: mx.array) -> mx.array:
     """GPU-optimized population count.

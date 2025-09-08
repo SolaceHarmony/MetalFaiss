@@ -51,8 +51,8 @@ class TestQRVariants(unittest.TestCase):
               f"Kernel: {t1:.4f}s (recon={float(rerr1):.3e})")
 
         # Reconstruction within reasonable tolerance
-        self.assertTrue(bool(mx.all(rerr0 <= mx.array(1e-2, dtype=mx.float32))))
-        self.assertTrue(bool(mx.all(rerr1 <= mx.array(1e-2, dtype=mx.float32))))
+        self.assertTrue(bool(mx.all(mx.less_equal(rerr0, mx.array(1e-2, dtype=mx.float32))).item()))  # boundary-ok
+        self.assertTrue(bool(mx.all(mx.less_equal(rerr1, mx.array(1e-2, dtype=mx.float32))).item()))  # boundary-ok
 
     def test_qr_tall_skinny(self):
         self._run_case(512, 64)
@@ -63,4 +63,3 @@ class TestQRVariants(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

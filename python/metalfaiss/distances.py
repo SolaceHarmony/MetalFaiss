@@ -89,7 +89,7 @@ def fvec_canberra(x: mx.array, y: mx.array) -> mx.array:
     """Compute Canberra distance between two vectors."""
     num = mx.abs(mx.subtract(x, y))
     den = mx.add(mx.abs(x), mx.abs(y))
-    den = mx.where(den > 0, den, mx.ones_like(den))
+    den = mx.where(mx.greater(den, mx.zeros_like(den)), den, mx.ones_like(den))
     return mx.sum(mx.divide(num, den))
 
 
@@ -139,7 +139,7 @@ def pairwise_L2sqr(xq: mx.array, xb: mx.array) -> mx.array:
     norms_b = mx.sum(mx.square(xb), axis=1, keepdims=True)  # shape: (nb, 1)
     
     # Compute dot products: (nq, d) x (d, nb) = (nq, nb)
-    dot_products = mx.matmul(xq, xb.T)
+    dot_products = mx.matmul(xq, mx.transpose(xb))
     
     # Combine: D = norms_q + norms_b.T - 2 * dot_products
     D = mx.subtract(mx.add(norms_q, mx.transpose(norms_b)), mx.add(dot_products, dot_products))
@@ -163,7 +163,7 @@ def pairwise_extra_distances(xq: mx.array, xb: mx.array, metric: str) -> mx.arra
     if metric == "Canberra":
         num = mx.abs(mx.subtract(xq[:, None, :], xb[None, :, :]))
         den = mx.add(mx.abs(xq[:, None, :]), mx.abs(xb[None, :, :]))
-        den = mx.where(den > 0, den, mx.ones_like(den))
+        den = mx.where(mx.greater(den, mx.zeros_like(den)), den, mx.ones_like(den))
         return mx.sum(mx.divide(num, den), axis=2)
     if metric == "BrayCurtis":
         num = mx.sum(mx.abs(mx.subtract(xq[:, None, :], xb[None, :, :])), axis=2)
@@ -175,11 +175,11 @@ def pairwise_extra_distances(xq: mx.array, xb: mx.array, metric: str) -> mx.arra
         for i in range(nq):
             xi = xq[i]
             m = mx.multiply(mx.array(0.5, dtype=xi.dtype), mx.add(xi[None, :], xb))
-            kl1 = mx.where(xi[None, :] > 0,
-                           mx.multiply(xi[None, :], mx.subtract(mx.log(xi[None, :]), mx.log(mx.maximum(m, 1e-20)))),
+            kl1 = mx.where(mx.greater(xi[None, :], mx.zeros_like(xi[None, :])),
+                           mx.multiply(xi[None, :], mx.subtract(mx.log(xi[None, :]), mx.log(mx.maximum(m, mx.array(1e-20, dtype=xi.dtype))))),
                            mx.array(0.0, dtype=xi.dtype))
-            kl2 = mx.where(xb > 0,
-                           mx.multiply(xb, mx.subtract(mx.log(xb), mx.log(mx.maximum(m, 1e-20)))),
+            kl2 = mx.where(mx.greater(xb, mx.zeros_like(xb)),
+                           mx.multiply(xb, mx.subtract(mx.log(xb), mx.log(mx.maximum(m, mx.array(1e-20, dtype=xi.dtype))))),
                            mx.array(0.0, dtype=xi.dtype))
             out[i] = mx.multiply(mx.array(0.5, dtype=xi.dtype), mx.add(mx.sum(kl1, axis=1), mx.sum(kl2, axis=1)))
         return out
@@ -227,7 +227,7 @@ def fvec_renorm_L2(x: mx.array) -> mx.array:
         MLX array of shape (n, d) where each row has been normalized to unit norm.
     """
     norms = mx.sqrt(mx.sum(mx.square(x), axis=1, keepdims=True))
-    norms = mx.where(norms > 0, norms, mx.ones_like(norms))
+    norms = mx.where(mx.greater(norms, mx.zeros_like(norms)), norms, mx.ones_like(norms))
     return mx.divide(x, norms)
 
 

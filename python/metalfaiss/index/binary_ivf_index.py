@@ -14,6 +14,7 @@ from .binary_flat_index import BinaryFlatIndex
 from ..utils.search_result import SearchResult
 from ..errors import InvalidArgumentError
 from ..utils.sorting import mlx_topk
+from ..faissmlx.device_guard import require_gpu
 
 class BinaryIVFIndex(BaseBinaryIndex):
     """Base class for binary IVF (Inverted File) indexes.
@@ -100,6 +101,7 @@ class BinaryIVFIndex(BaseBinaryIndex):
         xs: List[List[int]],
         ids: Optional[List[int]] = None
     ) -> None:
+        require_gpu("BinaryIVFIndex.add")
         """Add binary vectors to the index.
         
         Args:
@@ -118,6 +120,7 @@ class BinaryIVFIndex(BaseBinaryIndex):
         self._ntotal += len(x)
         
     def _search(self, xs: List[List[int]], k: int) -> SearchResult:
+        require_gpu("BinaryIVFIndex.search")
         """Search for nearest neighbors by Hamming distance.
         
         This performs coarse quantization to identify candidate lists,
@@ -171,7 +174,7 @@ class BinaryIVFIndex(BaseBinaryIndex):
             if L <= k:
                 order = mx.argsort(dists)
                 sel = dists[order]
-                ids_arr = mx.array([cids[j] for j in order.tolist()], dtype=mx.int32)
+                ids_arr = mx.array(cids, dtype=mx.int32)[order]
                 if L < k:
                     pad = k - L
                     sel = mx.concatenate([sel, mx.broadcast_to(inf, (pad,))])
@@ -180,13 +183,13 @@ class BinaryIVFIndex(BaseBinaryIndex):
                 out_ids = mx.scatter(out_ids, mx.array([i]), ids_arr.reshape((1, k)))
             else:
                 vals, idx = mlx_topk(dists, k, largest=False)
-                ids_arr = mx.array([cids[j] for j in idx.tolist()], dtype=mx.int32)
+                ids_arr = mx.array(cids, dtype=mx.int32)[idx]
                 out_vals = mx.scatter(out_vals, mx.array([i]), vals.reshape((1, k)))
                 out_ids = mx.scatter(out_ids, mx.array([i]), ids_arr.reshape((1, k)))
 
         return SearchResult(distances=out_vals, indices=out_ids)
         
-    def _reconstruct(self, key: int) -> List[int]:
+    def _reconstruct(self, key: int) -> mx.array:
         """Reconstruct vector from storage.
         
         Args:
@@ -206,7 +209,7 @@ class BinaryIVFIndex(BaseBinaryIndex):
         for invlist in self._invlists:
             for id, vec in invlist:
                 if id == key:
-                    return vec.tolist()
+                    return vec
                     
         raise ValueError(f"Invalid key {key}")
         

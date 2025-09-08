@@ -79,7 +79,7 @@ class OPQTransform(BaseVectorTransform):
                 d2 = mx.subtract(mx.add(nx, mx.transpose(nc)), mx.add(mm, mm))
                 labels = mx.argmin(d2, axis=1)
                 k = sub_c.shape[0]
-                oh = (labels.reshape((-1, 1)) == mx.arange(k).reshape((1, -1))).astype(mx.float32)
+                oh = mx.equal(labels.reshape((-1, 1)), mx.arange(k).reshape((1, -1))).astype(mx.float32)
                 matched = mx.matmul(oh, sub_c)
                 C_block = mx.matmul(sub_x.T, matched)
                 C[s:e, s:e] = C_block
@@ -119,7 +119,7 @@ class OPQTransform(BaseVectorTransform):
             mm = mx.matmul(x, centroids.T)
             d2 = mx.subtract(mx.add(nx, mx.transpose(nc)), mx.add(mm, mm))
             labels = mx.argmin(d2, axis=1)
-            oh = (labels.reshape((-1, 1)) == mx.arange(k).reshape((1, -1))).astype(mx.float32)
+            oh = mx.equal(labels.reshape((-1, 1)), mx.arange(k).reshape((1, -1))).astype(mx.float32)
             counts = mx.sum(oh, axis=0).reshape((k, 1))
             sums = mx.matmul(oh.T, x)
             counts = mx.maximum(counts, 1)

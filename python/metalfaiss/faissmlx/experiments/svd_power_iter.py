@@ -137,6 +137,6 @@ def test_small(n: int = 32, k: int = 8, iters: int = 5) -> Tuple[float, float]:
     R = mx.matmul(mx.transpose(Q), mx.matmul(A, Q))
     offdiag = mx.subtract(R, mx.diag(mx.diag(R)))
     mx.eval(QtQ, I, offdiag)
-    orth_err = float(mx.max(mx.abs(mx.subtract(QtQ, I))).item())
-    rayleigh_off = float(mx.max(mx.abs(offdiag)).item())
+    orth_err = float(mx.max(mx.abs(mx.subtract(QtQ, I))).item())  # boundary-ok
+    rayleigh_off = float(mx.max(mx.abs(offdiag)).item())  # boundary-ok
     return orth_err, rayleigh_off

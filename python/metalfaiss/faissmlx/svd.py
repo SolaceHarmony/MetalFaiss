@@ -26,6 +26,7 @@ import mlx.core as mx
 from .qr import pure_mlx_qr
 from .svd_dispatch import choose_svd_impl
 from .kernels.gemm_kernels import gemm_av, gemm_at_b
+from .device_guard import require_gpu
 import os
 
 _COMPILED_MLX_ITER_CACHE: dict[tuple, object] = {}
@@ -168,6 +169,8 @@ def topk_svd(
       set (or `METALFAISS_SVD_BAND`), the Z‑step runs in bands; `METALFAISS_SVD_STREAMS`
       can distribute bands across multiple MLX streams.
     """
+    # Enforce GPU usage unless explicitly allowed
+    require_gpu("topk_svd")
     m, n = int(A.shape[0]), int(A.shape[1])
     k = min(k, m, n)
 

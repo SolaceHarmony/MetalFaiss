@@ -24,11 +24,11 @@ from ..index.binary_ivf_index import BinaryIVFIndex
 
 def make_data(num: int, d: int) -> mx.array:
     """Generate test data."""
-    return array(mx.random.uniform(shape=(num, d)).astype(mx.float32).tolist())
+    return array(mx.random.uniform(shape=(num, d)).astype(mx.float32))
 
 def make_binary_data(num: int, d: int) -> mx.array:
     """Generate binary test data."""
-    return array(mx.random.randint(0, 2, shape=(num, d), dtype=mx.uint8).tolist())
+    return array(mx.random.randint(0, 2, shape=(num, d), dtype=mx.uint8))
 
 class TestMLXSerialize(unittest.TestCase):
     """Test MLX index serialization."""

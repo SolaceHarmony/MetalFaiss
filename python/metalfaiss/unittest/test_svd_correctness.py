@@ -30,8 +30,8 @@ class TestSVDCorrectness(unittest.TestCase):
         diag_err = mx.max(mx.abs(mx.diag(UtU) - 1.0))
         off = UtU - mx.diag(mx.diag(UtU))
         off_max = mx.max(mx.abs(off))
-        self.assertTrue(bool(mx.all(diag_err <= mx.array(1e-1, dtype=mx.float32))))
-        self.assertTrue(bool(mx.all(off_max <= mx.array(2e-1, dtype=mx.float32))))
+        self.assertTrue(bool(mx.all(mx.less_equal(diag_err, mx.array(1e-1, dtype=mx.float32))).item()))  # boundary-ok
+        self.assertTrue(bool(mx.all(mx.less_equal(off_max, mx.array(2e-1, dtype=mx.float32))).item()))  # boundary-ok
 
     def test_svd_reconstruction_quality(self):
         m, n, k = 256, 128, 16
@@ -46,7 +46,7 @@ class TestSVDCorrectness(unittest.TestCase):
         den = mx.sqrt(mx.sum(A * A)) + 1e-6
         rel = num / den
         # For random matrices and a few iters, relative residual should be modest
-        self.assertTrue(bool(mx.all(rel <= mx.array(0.5, dtype=mx.float32))))
+        self.assertTrue(bool(mx.all(mx.less_equal(rel, mx.array(0.5, dtype=mx.float32))).item()))  # boundary-ok
 
 if __name__ == "__main__":
     unittest.main()

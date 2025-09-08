@@ -14,7 +14,7 @@ from ..faissmlx.kernels import gemm_kernels as gk
 
 def _max_abs_err(x: mx.array, y: mx.array) -> float:
     d = mx.abs(x - y)
-    return float(mx.max(d).item())
+    return float(mx.max(d).item())  # boundary-ok
 
 
 class TestGemmFlagsCorrectness(unittest.TestCase):
@@ -56,4 +56,3 @@ class TestGemmFlagsCorrectness(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

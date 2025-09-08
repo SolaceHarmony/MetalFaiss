@@ -154,10 +154,8 @@ def _scan_ast_for_ops(path: Path, lines: list[str]):
 
 def main():
     for path in SRC.rglob('*.py'):
-        if 'unittest' in path.parts:
-            continue
         # Skip demo/experiments/helpers by default
-        if path.name in {'demo_utils.py', 'setup.py'}:
+        if path.name in {'setup.py'}:
             continue
         if 'experiments' in path.parts:
             continue

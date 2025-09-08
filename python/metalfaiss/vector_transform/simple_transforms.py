@@ -80,12 +80,12 @@ class RemapDimensionsTransform(BaseVectorTransform):
         if self.d_out <= self.d_in:
             # Subsample input dimensions
             step = mx.array(self.d_in / self.d_out)
-            return (mx.arange(self.d_out) * step).astype(mx.int32)
+            return mx.multiply(mx.arange(self.d_out), step).astype(mx.int32)
         else:
             # Repeat input dimensions with padding
             repeats = self.d_out // self.d_in
             remainder = self.d_out % self.d_in
-            mapping = mx.concatenate([mx.arange(self.d_in)] * repeats)
+            mapping = mx.concatenate([mx.arange(self.d_in) for _ in range(repeats)])
             mapping = mx.concatenate([mapping, mx.arange(remainder)])
             return mapping
             
@@ -306,5 +306,6 @@ class CenteringTransform(BaseVectorTransform):
         if not isinstance(other, CenteringTransform):
             raise ValueError("Not a centering transform")
             
-        if not mx.all(self.mean == other.mean):
+        same = bool(mx.all(mx.equal(self.mean, other.mean)).item())  # boundary-ok
+        if not same:
             raise ValueError("Means do not match")

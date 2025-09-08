@@ -107,7 +107,7 @@ class BaseClustering(ABC):
         """
         pass
 
-    def centroids(self) -> List[List[float]]:
+    def centroids(self) -> mx.array:
         """Get computed centroids.
         
         Returns:
@@ -118,4 +118,4 @@ class BaseClustering(ABC):
         """
         if self._centroids is None:
             raise RuntimeError("Clustering not trained")
-        return self._centroids.tolist()
+        return self._centroids

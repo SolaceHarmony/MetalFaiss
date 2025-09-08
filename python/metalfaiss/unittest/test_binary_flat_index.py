@@ -50,11 +50,11 @@ class TestBinaryFlatIndex(unittest.TestCase):
         self.assertEqual(I.shape, (nq, k))
         
         # Verify distances are sorted
-        self.assertTrue(mx.all(D[:, 1:] >= D[:, :-1]))
+        self.assertTrue(bool(mx.all(mx.greater_equal(D[:, 1:], D[:, :-1])).item()))  # boundary-ok
         
         # Verify exact match for query points
-        self.assertTrue(mx.all(D[:, 0] == 0))
-        self.assertTrue(mx.all(I[:, 0] == mx.arange(nq)))
+        self.assertTrue(bool(mx.all(mx.equal(D[:, 0], mx.zeros((nq,), dtype=D.dtype))).item()))  # boundary-ok
+        self.assertTrue(bool(mx.all(mx.equal(I[:, 0], mx.arange(nq))).item()))  # boundary-ok
         
     def test_range_search(self):
         """Test range search."""
@@ -76,7 +76,7 @@ class TestBinaryFlatIndex(unittest.TestCase):
         
         # Verify distances are within radius
         for d in result.distances:
-            self.assertTrue(mx.all(d <= radius))
+            self.assertTrue(bool(mx.all(mx.less_equal(d, mx.array(radius, dtype=d.dtype))).item()))  # boundary-ok
             
     def test_reconstruct(self):
         """Test vector reconstruction."""
@@ -85,12 +85,12 @@ class TestBinaryFlatIndex(unittest.TestCase):
         
         # Single vector
         x_rec = index.reconstruct(0)
-        self.assertTrue(mx.all(x_rec == self.x[0:1]))
+        self.assertTrue(bool(mx.all(mx.equal(x_rec, self.x[0:1])).item()))  # boundary-ok
         
         # Multiple vectors
         idx = mx.array([0, 2, 4])
         x_rec = index.reconstruct(idx)
-        self.assertTrue(mx.all(x_rec == self.x[idx]))
+        self.assertTrue(bool(mx.all(mx.equal(x_rec, self.x[idx])).item()))  # boundary-ok
         
         # Out of bounds
         with self.assertRaises(ValueError):
@@ -107,13 +107,13 @@ class TestBinaryFlatIndex(unittest.TestCase):
         D, I = index.search(self.x[:10], k=4)
         self.assertEqual(D.shape, (10, 4))
         self.assertEqual(I.shape, (10, 4))
-        self.assertTrue(mx.all(I == 0))
+        self.assertTrue(bool(mx.all(mx.equal(I, mx.zeros_like(I))).item()))  # boundary-ok
         
         # Range search empty index
         result = index.range_search(self.x[:10], radius=10)
         self.assertEqual(len(result.distances), 0)
         self.assertEqual(len(result.indices), 0)
-        self.assertTrue(mx.all(result.lims == 0))
+        self.assertTrue(bool(mx.all(mx.equal(result.lims, mx.zeros_like(result.lims))).item()))  # boundary-ok
         
     def test_transform(self):
         """Test with binary transform."""
@@ -131,8 +131,8 @@ class TestBinaryFlatIndex(unittest.TestCase):
         D, I = index.search(yq, k=4)
         
         # Verify exact matches
-        self.assertTrue(mx.all(D[:, 0] == 0))
-        self.assertTrue(mx.all(I[:, 0] == mx.arange(10)))
+        self.assertTrue(bool(mx.all(mx.equal(D[:, 0], mx.zeros((10,), dtype=D.dtype))).item()))  # boundary-ok
+        self.assertTrue(bool(mx.all(mx.equal(I[:, 0], mx.arange(10))).item()))  # boundary-ok
 
 if __name__ == '__main__':
     unittest.main()
