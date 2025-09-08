@@ -32,7 +32,8 @@ class LSHIndex(BaseIndex):
                                 indices=mx.zeros((len(query), 0), dtype=mx.int32))
 
         # Compute query hash and hamming distances
-        query_proj = mx.matmul(query, self.rotation_matrix) > 0
+        proj = mx.matmul(query, self.rotation_matrix)
+        query_proj = mx.greater(proj, mx.array(0, dtype=proj.dtype))
         hamming_dists = mx.sum(query_proj[:, None, :] != self.bits, axis=2)
         
         # Get top k nearest

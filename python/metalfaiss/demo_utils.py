@@ -34,16 +34,16 @@ def create_matrix(rows, columns):
 def normalize_data(data):
     """Normalize data to unit vectors."""
     data = mx.array(data, dtype=mx.float32)
-    norms = mx.sqrt(mx.sum(data * data, axis=1, keepdims=True))
-    norms = mx.where(norms > 0, norms, 1)
-    return data / norms
+    norms = mx.sqrt(mx.sum(mx.multiply(data, data), axis=1, keepdims=True))
+    norms = mx.where(mx.greater(norms, mx.zeros_like(norms)), norms, mx.ones_like(norms))
+    return mx.divide(data, norms)
 
 def compute_distances(data, query):
     """Compute distances between data points and query."""
     data = mx.array(data, dtype=mx.float32)
     query = mx.array(query, dtype=mx.float32)
-    diff = data - query
-    return mx.sqrt(mx.sum(diff * diff, axis=1))
+    diff = mx.subtract(data, query)
+    return mx.sqrt(mx.sum(mx.multiply(diff, diff), axis=1))
 
 def random_projection(data, output_dim):
     """Apply random projection to reduce dimensionality."""

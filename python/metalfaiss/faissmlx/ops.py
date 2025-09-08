@@ -18,7 +18,12 @@ from typing import List, Tuple, Union, Optional
 from enum import Enum
 
 class Device(Enum):
-    """Device types for array placement."""
+    """Logical device selector.
+
+    DEFAULT: use MLX default device (typically Metal GPU when available).
+    CPU/GPU: advisory hints; see `to_device` below.
+    """
+    DEFAULT = "default"
     CPU = "cpu"
     GPU = "gpu"
 
@@ -27,7 +32,7 @@ class Device(Enum):
 def array(
     data: Union[List, mx.array],
     dtype: Optional[str] = None,
-    device: Device = Device.CPU
+    device: Optional[Device] = None
 ) -> mx.array:
     """Create array from data.
     
@@ -40,13 +45,12 @@ def array(
         MLX array on specified device
     """
     arr = mx.array(data, dtype=dtype)
-    # TODO: Add device placement when MLX supports it
     return arr
 
 def zeros(
     shape: Tuple[int, ...],
     dtype: str = "float32",
-    device: Device = Device.CPU
+    device: Optional[Device] = None
 ) -> mx.array:
     """Create array of zeros.
     
@@ -59,17 +63,15 @@ def zeros(
         Array of zeros
     """
     arr = mx.zeros(shape, dtype=dtype)
-    # TODO: Add device placement
     return arr
 
 def ones(
     shape: Tuple[int, ...],
     dtype: str = "float32",
-    device: Device = Device.CPU
+    device: Optional[Device] = None
 ) -> mx.array:
     """Create array of ones."""
     arr = mx.ones(shape, dtype=dtype)
-    # TODO: Add device placement
     return arr
 
 def arange(
@@ -77,21 +79,19 @@ def arange(
     stop: Optional[int] = None,
     step: int = 1,
     dtype: str = "int32",
-    device: Device = Device.CPU
+    device: Optional[Device] = None
 ) -> mx.array:
     """Create range array."""
     arr = mx.arange(start, stop, step, dtype=dtype)
-    # TODO: Add device placement
     return arr
 
 def concatenate(
     arrays: List[mx.array],
     axis: int = 0,
-    device: Device = Device.CPU
+    device: Optional[Device] = None
 ) -> mx.array:
     """Concatenate arrays."""
     arr = mx.concatenate(arrays, axis=axis)
-    # TODO: Add device placement
     return arr
 
 # Math Ops
@@ -238,7 +238,17 @@ def to_device(x: mx.array, device: Device) -> mx.array:
     Returns:
         Array on target device
     """
-    # TODO: Implement when MLX supports explicit device placement
+    try:
+        if device == Device.GPU:
+            # Hints MLX to use GPU for subsequent ops
+            if hasattr(mx, 'set_default_device') and hasattr(mx, 'gpu'):
+                mx.set_default_device(mx.gpu)
+        elif device == Device.CPU:
+            if hasattr(mx, 'set_default_device') and hasattr(mx, 'cpu'):
+                mx.set_default_device(mx.cpu)
+        # DEFAULT: leave as-is
+    except Exception:
+        pass
     return x
 
 def get_device(x: mx.array) -> Device:
@@ -250,5 +260,10 @@ def get_device(x: mx.array) -> Device:
     Returns:
         Device containing array
     """
-    # TODO: Implement when MLX supports device queries
-    return Device.CPU
+    try:
+        d = str(mx.default_device()).lower()
+        if 'gpu' in d or 'metal' in d:
+            return Device.GPU
+        return Device.CPU
+    except Exception:
+        return Device.DEFAULT

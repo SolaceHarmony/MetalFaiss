@@ -250,7 +250,8 @@ class BaseLinearTransform(BaseVectorTransform):
         AAT = mx.matmul(A, A.T)
         I = mx.eye(AAT.shape[0])
         tol = mx.array(1e-5, dtype=AAT.dtype)
-        self.is_orthonormal = bool(mx.all(mx.less(mx.abs(mx.subtract(AAT, I)), tol)))
+        ok = bool(mx.all(mx.less(mx.abs(mx.subtract(AAT, I)), tol)).item())  # boundary-ok
+        self.is_orthonormal = ok
         
     def check_identical(self, other: BaseVectorTransform) -> None:
         """Check if transforms are identical.
@@ -270,8 +271,8 @@ class BaseLinearTransform(BaseVectorTransform):
             self.have_bias != other.have_bias or
             self.is_orthonormal != other.is_orthonormal or
             (self.A is None) != (other.A is None) or
-            (self.A is not None and not mx.all(self.A == other.A)) or
+            (self.A is not None and not bool(mx.all(mx.equal(self.A, other.A)).item())) or  # boundary-ok
             (self.have_bias and self.b is not None and
-             not mx.all(self.b == other.b))
+             not bool(mx.all(mx.equal(self.b, other.b)).item()))  # boundary-ok
         ):
             raise ValueError("Linear transforms are not identical")

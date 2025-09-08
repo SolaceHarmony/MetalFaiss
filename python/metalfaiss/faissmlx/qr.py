@@ -17,6 +17,7 @@ from typing import Tuple
 import os
 import mlx.core as mx
 from .kernels.qr_kernels import project_coeffs, update_vector
+from .device_guard import require_gpu
 from .svd_dispatch import choose_qr_impl
 
 def pure_mlx_qr(A: mx.array) -> Tuple[mx.array, mx.array]:
@@ -33,6 +34,8 @@ def pure_mlx_qr(A: mx.array) -> Tuple[mx.array, mx.array]:
     - Performs two‑pass re‑orthogonalization for stability.
     - Projection/update use kernel-accelerated paths.
     """
+    # Enforce GPU usage unless explicitly allowed
+    require_gpu("QR (pure_mlx_qr)")
     m, n = int(A.shape[0]), int(A.shape[1])
     K = min(m, n)
     Q = mx.zeros((m, m), dtype=A.dtype)

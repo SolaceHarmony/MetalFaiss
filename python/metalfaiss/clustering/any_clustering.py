@@ -23,10 +23,10 @@ class BaseClustering:
     def train(self, x: List[List[float]]) -> None:
         raise NotImplementedError
 
-    def centroids(self) -> List[List[float]]:
+    def centroids(self) -> mx.array:
         if self.centroids_ is None:
             raise ValueError("Clustering not trained yet")
-        return self.centroids_.tolist()
+        return self.centroids_
 
 class AnyClustering(BaseClustering):
     """Clustering interface that matches the Swift Faiss implementation."""
@@ -105,25 +105,25 @@ class AnyClustering(BaseClustering):
                 dists = mx.sum(mx.square(mx.subtract(x[:, None], self._centroids[None])), axis=2)
                 labels = mx.argmin(dists, axis=1)
                 
-                # Update centroids
+                # Update centroids (device-only; avoid Python scalar checks)
                 new_centroids = []
                 for j in range(self.k):
-                    mask = labels == j
-                    if mx.sum(mask) > 0:
-                        centroid = mx.mean(x[mask], axis=0)
-                        new_centroids.append(centroid)
-                    else:
-                        new_centroids.append(self._centroids[j])
+                    mask = mx.equal(labels, mx.array(j, dtype=labels.dtype))
+                    count = mx.sum(mask)
+                    # Safe mean: sum / max(count, 1)
+                    sumj = mx.sum(mx.where(mask[:, None], x, mx.zeros_like(x)), axis=0)
+                    denom = mx.maximum(count, mx.array(1, dtype=count.dtype))
+                    meanj = mx.divide(sumj, denom)
+                    use_mean = mx.greater(count, mx.array(0, dtype=count.dtype))
+                    new_centroids.append(mx.where(use_mean, meanj, self._centroids[j]))
                 
                 self._centroids = mx.stack(new_centroids)
                 
-                # Check convergence
-                if mx.sum(mx.square(mx.subtract(self._centroids, old_centroids))) < self.parameters.eps:
-                    break
+                # Optional early stop removed to avoid host pulls; run fixed iterations
                     
             mx.eval(self._centroids)
 
-    def centroids(self) -> List[List[float]]:
+    def centroids(self) -> mx.array:
         """Get computed centroids.
         
         Returns:
@@ -131,7 +131,7 @@ class AnyClustering(BaseClustering):
         """
         if self._centroids is None:
             raise RuntimeError("Clustering not trained")
-        return self._centroids.tolist()
+        return self._centroids
 
 def kmeans_clustering(
     xs: List[List[float]],

@@ -26,7 +26,7 @@ class TestArrayOps(unittest.TestCase):
         # From list
         data = [[1, 2], [3, 4]]
         arr = array(data)
-        self.assertEqual(arr.tolist(), data)
+        self.assertTrue(bool(mx.all(mx.equal(arr, mx.array(data))).item()))  # boundary-ok
         
         # With dtype
         arr = array(data, dtype="float32")
@@ -34,8 +34,8 @@ class TestArrayOps(unittest.TestCase):
         
         # From numpy
         data = mx.random.normal(shape=(3, 4))
-        arr = array(data.tolist())
-        self.assertEqual(arr.tolist(), data.tolist())
+        arr = array(data)
+        self.assertTrue(bool(mx.all(mx.equal(arr, data)).item()))  # boundary-ok
         
     def test_zeros_ones(self):
         """Test zeros and ones creation."""
@@ -44,26 +44,26 @@ class TestArrayOps(unittest.TestCase):
         # Zeros
         z = zeros(shape)
         self.assertEqual(z.shape, shape)
-        self.assertEqual(z.tolist(), [[0, 0, 0], [0, 0, 0]])
+        self.assertTrue(bool(mx.all(mx.equal(z, mx.zeros(shape))).item()))  # boundary-ok
         
         # Ones
         o = ones(shape)
         self.assertEqual(o.shape, shape)
-        self.assertEqual(o.tolist(), [[1, 1, 1], [1, 1, 1]])
+        self.assertTrue(bool(mx.all(mx.equal(o, mx.ones(shape))).item()))  # boundary-ok
         
     def test_arange(self):
         """Test arange."""
         # Basic range
         arr = arange(5)
-        self.assertEqual(arr.tolist(), [0, 1, 2, 3, 4])
+        self.assertTrue(bool(mx.all(mx.equal(arr, mx.arange(5))).item()))  # boundary-ok
         
         # With start, stop
         arr = arange(2, 5)
-        self.assertEqual(arr.tolist(), [2, 3, 4])
+        self.assertTrue(bool(mx.all(mx.equal(arr, mx.arange(2, 5))).item()))  # boundary-ok
         
         # With step
         arr = arange(0, 6, 2)
-        self.assertEqual(arr.tolist(), [0, 2, 4])
+        self.assertTrue(bool(mx.all(mx.equal(arr, mx.array([0, 2, 4]))).item()))  # boundary-ok
         
     def test_concatenate(self):
         """Test array concatenation."""
@@ -72,13 +72,13 @@ class TestArrayOps(unittest.TestCase):
         
         # Along axis 0
         c = concatenate([a, b])
-        self.assertEqual(c.tolist(), [[1, 2], [3, 4], [5, 6]])
+        self.assertTrue(bool(mx.all(mx.equal(c, mx.array([[1,2],[3,4],[5,6]]))).item()))  # boundary-ok
         
         # Along axis 1
         a = array([[1, 2], [3, 4]])
         b = array([[5], [6]])
         c = concatenate([a, b], axis=1)
-        self.assertEqual(c.tolist(), [[1, 2, 5], [3, 4, 6]])
+        self.assertTrue(bool(mx.all(mx.equal(c, mx.array([[1,2,5],[3,4,6]]))).item()))  # boundary-ok
 
 class TestMathOps(unittest.TestCase):
     """Test mathematical operations."""
@@ -91,18 +91,18 @@ class TestMathOps(unittest.TestCase):
         """Test reduction operations."""
         # Sum
         self.assertEqual(float(sum(self.x)), 21)  # Total sum
-        self.assertEqual(sum(self.x, axis=0).tolist(), [5, 7, 9])
-        self.assertEqual(sum(self.x, axis=1).tolist(), [6, 15])
+        self.assertTrue(bool(mx.all(mx.equal(sum(self.x, axis=0), mx.array([5,7,9]))).item()))  # boundary-ok
+        self.assertTrue(bool(mx.all(mx.equal(sum(self.x, axis=1), mx.array([6,15]))).item()))  # boundary-ok
         
         # Mean
         self.assertEqual(float(mean(self.x)), 3.5)
-        self.assertEqual([round(v, 6) for v in mean(self.x, axis=0).tolist()], [2.5, 3.5, 4.5])
+        self.assertTrue(bool(mx.allclose(mean(self.x, axis=0), mx.array([2.5,3.5,4.5]), rtol=1e-6, atol=1e-6).item()))  # boundary-ok
         
         # Min/Max
         self.assertEqual(float(min(self.x)), 1)
         self.assertEqual(float(max(self.x)), 6)
-        self.assertEqual(min(self.x, axis=0).tolist(), [1, 2, 3])
-        self.assertEqual(max(self.x, axis=1).tolist(), [3, 6])
+        self.assertTrue(bool(mx.all(mx.equal(min(self.x, axis=0), mx.array([1,2,3]))).item()))  # boundary-ok
+        self.assertTrue(bool(mx.all(mx.equal(max(self.x, axis=1), mx.array([3,6]))).item()))  # boundary-ok
 
 class TestMatrixOps(unittest.TestCase):
     """Test matrix operations."""
@@ -112,13 +112,13 @@ class TestMatrixOps(unittest.TestCase):
         a = array([[1, 2], [3, 4]])
         b = array([[5, 6], [7, 8]])
         c = matmul(a, b)
-        self.assertEqual(c.tolist(), [[19, 22], [43, 50]])
+        self.assertTrue(bool(mx.all(mx.equal(c, mx.array([[19,22],[43,50]]))).item()))  # boundary-ok
         
     def test_transpose(self):
         """Test transpose."""
         x = array([[1, 2, 3], [4, 5, 6]])
         y = transpose(x)
-        self.assertEqual(y.tolist(), [[1, 4], [2, 5], [3, 6]])
+        self.assertTrue(bool(mx.all(mx.equal(y, mx.array([[1,4],[2,5],[3,6]]))).item()))  # boundary-ok
         
         # With custom axes
         x = array([[[1, 2], [3, 4]], [[5, 6], [7, 8]]])
@@ -134,7 +134,7 @@ class TestDistanceOps(unittest.TestCase):
         y = array([[1, 1], [0, 0]])
         
         dists = l2_distances(x, y)
-        self.assertEqual(dists.tolist(), [[1.0, 1.0], [2.0, 1.0]])
+        self.assertTrue(bool(mx.allclose(dists, mx.array([[1.0,1.0],[2.0,1.0]]), rtol=1e-6, atol=1e-6).item()))  # boundary-ok
         
     def test_cosine_distances(self):
         """Test cosine distance computation."""
@@ -142,10 +142,8 @@ class TestDistanceOps(unittest.TestCase):
         y = array([[1, 1], [0, 1]])
         
         dists = cosine_distances(x, y)
-        # cos(0) = 1, cos(45°) ≈ 0.707
-        expected = [[0.293, 1], [0.293, 0.293]]
-        got = [[round(v, 3) for v in row] for row in dists.tolist()]
-        self.assertEqual(got, expected)
+        expected = mx.array([[0.293, 1.0],[0.293, 0.293]], dtype=mx.float32)
+        self.assertTrue(bool(mx.allclose(mx.round(dists, 3), expected, rtol=1e-3, atol=1e-3).item()))  # boundary-ok
         
     def test_hamming_distances(self):
         """Test Hamming distance computation."""
@@ -153,7 +151,7 @@ class TestDistanceOps(unittest.TestCase):
         y = array([[1, 1, 1], [0, 0, 0]], dtype="uint8")
         
         dists = hamming_distances(x, y)
-        self.assertEqual(dists.tolist(), [[1, 3], [3, 2]])
+        self.assertTrue(bool(mx.all(mx.equal(dists, mx.array([[1,3],[3,2]], dtype=mx.int32))).item()))  # boundary-ok
 
 class TestBinaryOps(unittest.TestCase):
     """Test binary operations."""
@@ -166,22 +164,22 @@ class TestBinaryOps(unittest.TestCase):
     def test_binary_ops(self):
         """Test basic binary operations."""
         # AND
-        self.assertEqual(binary_and(self.x, self.y).tolist(), [0b1000, 0b1000])
+        self.assertTrue(bool(mx.all(mx.equal(binary_and(self.x, self.y), mx.array([0b1000,0b1000], dtype='uint8'))).item()))  # boundary-ok
         
         # OR
-        self.assertEqual(binary_or(self.x, self.y).tolist(), [0b1110, 0b1110])
+        self.assertTrue(bool(mx.all(mx.equal(binary_or(self.x, self.y), mx.array([0b1110,0b1110], dtype='uint8'))).item()))  # boundary-ok
         
         # XOR
-        self.assertEqual(binary_xor(self.x, self.y).tolist(), [0b0110, 0b0110])
+        self.assertTrue(bool(mx.all(mx.equal(binary_xor(self.x, self.y), mx.array([0b0110,0b0110], dtype='uint8'))).item()))  # boundary-ok
         
         # NOT
-        self.assertEqual(binary_not(array([0b0011], dtype="uint8")).tolist(), [0b11111100])
+        self.assertTrue(bool(mx.all(mx.equal(binary_not(array([0b0011], dtype="uint8")), mx.array([0b11111100], dtype='uint8'))).item()))  # boundary-ok
         
     def test_popcount(self):
         """Test population count."""
         x = array([0b1010, 0b1111, 0b0000], dtype="uint8")
         counts = popcount(x)
-        self.assertEqual(counts.tolist(), [2, 4, 0])
+        self.assertTrue(bool(mx.all(mx.equal(counts, mx.array([2,4,0], dtype='uint8'))).item()))  # boundary-ok
 
 class TestDeviceOps(unittest.TestCase):
     """Test device operations."""
@@ -196,7 +194,7 @@ class TestDeviceOps(unittest.TestCase):
         # Moving to device is no-op for now
         y = to_device(x, Device.GPU)
         self.assertEqual(get_device(y), Device.CPU)
-        self.assertEqual(x.tolist(), y.tolist())
+        self.assertTrue(bool(mx.all(mx.equal(x, y)).item()))  # boundary-ok
 
 if __name__ == '__main__':
     unittest.main()

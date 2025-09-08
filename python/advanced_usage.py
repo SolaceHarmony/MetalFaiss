@@ -13,6 +13,7 @@ import sys
 import os
 import time
 import numpy as np
+import mlx.core as mx
 
 # Add the package path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'metalfaiss'))
@@ -38,7 +39,7 @@ def large_dataset_example():
     # Create index and measure build time
     start_time = time.time()
     index = metalfaiss.FlatIndex(d, metalfaiss.MetricType.L2)
-    index.add(vectors.tolist())
+    index.add(mx.array(vectors))
     build_time = time.time() - start_time
     
     print(f"✓ Built index with {index.ntotal} vectors in {build_time:.3f} seconds")
@@ -51,20 +52,20 @@ def large_dataset_example():
     # Measure search performance
     k = 10
     start_time = time.time()
-    results = index.search(queries.tolist(), k)
+    results = index.search(mx.array(queries), k)
     search_time = time.time() - start_time
     
     print(f"✓ Searched {n_queries} queries (k={k}) in {search_time:.3f} seconds")
     print(f"  Average search time: {search_time/n_queries*1000:.2f} ms per query")
     
     # Analyze results
-    distances = np.array(results.distances)
-    labels = np.array(results.labels)
+    distances = results.distances
+    labels = results.labels
     
     print(f"✓ Distance statistics:")
-    print(f"  Min distance: {distances.min():.4f}")
-    print(f"  Max distance: {distances.max():.4f}")
-    print(f"  Mean distance: {distances.mean():.4f}")
+    print(f"  Min distance: {float(mx.min(distances).item()):.4f}")  # boundary-ok
+    print(f"  Max distance: {float(mx.max(distances).item()):.4f}")  # boundary-ok
+    print(f"  Mean distance: {float(mx.mean(distances).item()):.4f}")  # boundary-ok
     print()
 
 def metric_comparison_example():
@@ -97,8 +98,8 @@ def metric_comparison_example():
     
     for metric_type, metric_name in metrics:
         index = metalfaiss.FlatIndex(3, metric_type)
-        index.add(vectors)
-        result = index.search(query, k=3)
+        index.add(mx.array(vectors))
+        result = index.search(mx.array(query), k=3)
         
         print(f"{metric_name} - Top 3 matches:")
         for i, (dist, label) in enumerate(zip(result.distances[0], result.labels[0])):
@@ -125,7 +126,7 @@ def batch_operations_example():
         
         # Add to index
         start_time = time.time()
-        index.add(batch.tolist())
+        index.add(mx.array(batch))
         add_time = time.time() - start_time
         total_added += batch_size
         
@@ -135,7 +136,7 @@ def batch_operations_example():
     print(f"Final index size: {index.ntotal} vectors")
     
     # Test search on the complete index
-    query = [np.random.normal(0, 1, d).astype(np.float32).tolist()]
+    query = mx.array(np.random.normal(0, 1, d).astype(np.float32)).reshape(1, -1)
     result = index.search(query, k=5)
     
     print(f"Sample search result distances: {result.distances[0]}")
@@ -165,11 +166,10 @@ def reconstruction_example():
     print("Reconstructed vectors:")
     for i in range(len(original_vectors)):
         reconstructed = index.reconstruct(i)
-        original = original_vectors[i]
-        
-        # Check accuracy
-        diff = sum((a - b)**2 for a, b in zip(original, reconstructed))**0.5
-        print(f"  {i}: {reconstructed} (error: {diff:.6f})")
+        original = mx.array(original_vectors[i], dtype="float32")
+        # Check accuracy with MLX
+        err = float(mx.sqrt(mx.sum(mx.square(mx.subtract(reconstructed, original)))).item())  # boundary-ok
+        print(f"  {i}: {reconstructed} (error: {err:.6f})")
     
     print()
 

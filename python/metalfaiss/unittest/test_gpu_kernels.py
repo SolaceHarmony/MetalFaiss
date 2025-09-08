@@ -166,7 +166,7 @@ class TestBinaryKernels(unittest.TestCase):
         expected = mx.zeros((self.x.shape[0], self.y.shape[0]), dtype=mx.uint32)
         for i in range(int(self.x.shape[0])):
             for j in range(int(self.y.shape[0])):
-                expected[i, j] = int(bin(int(self.x[i].item()) ^ int(self.y[j].item())).count('1'))
+                expected[i, j] = int(bin(int(self.x[i].item()) ^ int(self.y[j].item())).count('1'))  # boundary-ok
         assert_array_equal(result, expected)
 
 class TestMemoryKernels(unittest.TestCase):

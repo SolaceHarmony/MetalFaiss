@@ -6,6 +6,7 @@ import mlx.core as mx
 from typing import List, Optional, Tuple, Union
 from .binary_index import BaseBinaryIndex
 from ..types.metric_type import MetricType
+from ..faissmlx.device_guard import require_gpu
 from ..utils.search_result import SearchResult, SearchRangeResult
 
 class BinaryFlatIndex(BaseBinaryIndex):
@@ -30,12 +31,12 @@ class BinaryFlatIndex(BaseBinaryIndex):
         Args:
             x: Binary vectors to add (n, d)
         """
+        require_gpu("BinaryFlatIndex.add")
         if x.shape[1] != self.d:
             raise ValueError(f"Vector dimension {x.shape[1]} != index dimension {self.d}")
             
-        # Convert to uint8
-        if x.dtype != mx.uint8:
-            x = x.astype(mx.uint8)
+        # Convert to uint8 (unconditionally to avoid dtype checks in hot path)
+        x = x.astype(mx.uint8)
             
         # Initialize or append codes
         if self.codes is None:
@@ -62,6 +63,7 @@ class BinaryFlatIndex(BaseBinaryIndex):
             distances: Hamming distances (n, k)
             indices: Indices of nearest neighbors (n, k)
         """
+        require_gpu("BinaryFlatIndex.search")
         if x.shape[1] != self.d:
             raise ValueError(f"Query dimension {x.shape[1]} != index dimension {self.d}")
             
@@ -71,17 +73,17 @@ class BinaryFlatIndex(BaseBinaryIndex):
                 mx.zeros((len(x), k), dtype=mx.int32)
             )
             
-        # Convert to uint8
-        if x.dtype != mx.uint8:
-            x = x.astype(mx.uint8)
+        # Convert to uint8 (unconditionally to avoid dtype checks in hot path)
+        x = x.astype(mx.uint8)
             
         # Compute Hamming distances
         distances = mx.zeros((len(x), self.ntotal), dtype=mx.int32)
         for i in range(self.d):
-            distances += mx.not_equal(
+            inc = mx.not_equal(
                 x[:, i:i+1],
                 self.codes[:, i].reshape(1, -1)
-            )
+            ).astype(mx.int32)
+            distances = mx.add(distances, inc)
             
         # Get top k
         if k > self.ntotal:
@@ -107,23 +109,24 @@ class BinaryFlatIndex(BaseBinaryIndex):
         Returns:
             SearchRangeResult containing distances and indices
         """
+        require_gpu("BinaryFlatIndex.range_search")
         if x.shape[1] != self.d:
             raise ValueError(f"Query dimension {x.shape[1]} != index dimension {self.d}")
             
         if self.ntotal == 0:
             return SearchRangeResult([], [], mx.array([0] * (len(x) + 1)))
             
-        # Convert to uint8
-        if x.dtype != mx.uint8:
-            x = x.astype(mx.uint8)
+        # Convert to uint8 (unconditionally to avoid dtype checks in hot path)
+        x = x.astype(mx.uint8)
             
         # Compute Hamming distances
         distances = mx.zeros((len(x), self.ntotal), dtype=mx.int32)
         for i in range(self.d):
-            distances += mx.not_equal(
+            inc = mx.not_equal(
                 x[:, i:i+1],
                 self.codes[:, i].reshape(1, -1)
-            )
+            ).astype(mx.int32)
+            distances = mx.add(distances, inc)
             
         # Get matches within radius
         flat_distances = []
@@ -131,7 +134,7 @@ class BinaryFlatIndex(BaseBinaryIndex):
         lims = [0]
         rad = mx.array(radius, dtype=mx.int32)
         for i in range(len(x)):
-            mask = distances[i] <= rad
+            mask = mx.less_equal(distances[i], rad)
             d_arr = distances[i][mask]
             j_arr = mx.arange(self.ntotal, dtype=mx.int32)[mask]
             # Append as 1-element arrays without converting to Python scalars
@@ -160,7 +163,10 @@ class BinaryFlatIndex(BaseBinaryIndex):
                 raise ValueError(f"Index {idx} out of bounds [0, {self.ntotal})")
             return self.codes[idx:idx+1]
         else:
-            if mx.min(idx) < 0 or mx.max(idx) >= self.ntotal:
+            lo_bad = mx.less(mx.min(idx), mx.array(0, dtype=idx.dtype))
+            hi_bad = mx.greater_equal(mx.max(idx), mx.array(self.ntotal, dtype=idx.dtype))
+            any_bad = bool(mx.any(mx.logical_or(lo_bad, hi_bad)).item())  # boundary-ok
+            if any_bad:
                 raise ValueError(f"Indices out of bounds [0, {self.ntotal})")
             return self.codes[idx]
             

@@ -13,6 +13,7 @@ from .hnsw import HNSW, HNSWStats
 from ..types.metric_type import MetricType
 from ..utils.search_result import SearchResult
 from ..distances import pairwise_L2sqr
+from ..faissmlx.device_guard import require_gpu
 
 class HNSWIndex(BaseIndex):
     """HNSW index with optimized vector storage."""
@@ -99,9 +100,9 @@ class HNSWIndex(BaseIndex):
         
         def dist_computer(i: int, j: int) -> float:
             if i == -1 or j == -1:
-                return float(self._inf.astype(mx.float32))
+                return float(self._inf.astype(mx.float32).item())  # boundary-ok
             if i >= len(self._vectors) or j >= len(self._vectors):
-                return float(self._inf.astype(mx.float32))
+                return float(self._inf.astype(mx.float32).item())  # boundary-ok
                 
             # Check cache
             cache_key = (min(i, j), max(i, j))
@@ -114,10 +115,10 @@ class HNSWIndex(BaseIndex):
             
             if self._metric_type == MetricType.L2:
                 diff = mx.subtract(vec1, vec2)
-                dist = float(mx.sum(mx.multiply(diff, diff)).astype(mx.float32))
+                dist = float(mx.sum(mx.multiply(diff, diff)).astype(mx.float32).item())  # boundary-ok
             else:  # Inner product
-                dist = float(mx.negative(mx.dot(vec1, vec2)).astype(mx.float32))
-                
+                dist = float(mx.negative(mx.dot(vec1, vec2)).astype(mx.float32).item())  # boundary-ok
+            
             # Cache result
             cache[cache_key] = dist
             return dist
@@ -129,6 +130,7 @@ class HNSWIndex(BaseIndex):
         self.is_trained = True
         
     def add(self, xs: List[List[float]], ids: Optional[List[int]] = None) -> None:
+        require_gpu("HNSWIndex.add")
         """Add vectors to the index.
         
         Args:
@@ -157,7 +159,9 @@ class HNSWIndex(BaseIndex):
         d2 = mx.sum(mx.square(diff), axis=2)
         # Mask self-distances with +inf
         inf = mx.divide(mx.ones((), dtype=mx.float32), mx.zeros((), dtype=mx.float32))
-        d2 = mx.where(mx.eye(n, dtype=mx.float32) > 0, inf, d2)
+        eye = mx.eye(n, dtype=mx.float32)
+        mask = mx.greater(eye, mx.zeros_like(eye))
+        d2 = mx.where(mask, inf, d2)
         # Get top M0 neighbors for each row
         order = mx.argsort(d2, axis=1)[:, :M0]
         # Fill HNSW arrays
@@ -169,6 +173,7 @@ class HNSWIndex(BaseIndex):
         self.hnsw.max_level = 0
         
     def search(self, xs: List[List[float]], k: int) -> SearchResult:
+        require_gpu("HNSWIndex.search")
         """Search for nearest neighbors.
         
         Args:
@@ -212,7 +217,7 @@ class HNSWIndex(BaseIndex):
         D, I = mx.vmap(_one, in_axes=0, out_axes=(0, 0))(x)
         return SearchResult(distances=D, indices=I)
         
-    def reconstruct(self, key: int) -> List[float]:
+    def reconstruct(self, key: int) -> mx.array:
         """Reconstruct vector from storage.
         
         Args:
@@ -227,7 +232,7 @@ class HNSWIndex(BaseIndex):
         if key < 0 or key >= self.ntotal:
             raise ValueError(f"Invalid key {key}")
             
-        return self._vectors[key].tolist()
+        return self._vectors[key]
         
     def reset(self) -> None:
         """Reset the index."""

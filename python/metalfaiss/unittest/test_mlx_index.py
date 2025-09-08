@@ -9,6 +9,7 @@ These tests verify index functionality using MLX, particularly focusing on:
 """
 
 import unittest
+import numpy as np
 from .mlx_test_utils import assert_array_equal, assert_allclose
 import mlx.core as mx
 from typing import List, Tuple
@@ -31,11 +32,11 @@ from ..index.binary_ivf_index import BinaryIVFIndex
 
 def make_data(num: int, d: int) -> mx.array:
     """Generate test data."""
-    return array(mx.random.uniform(shape=(num, d)).astype(mx.float32).tolist())
+    return array(mx.random.uniform(shape=(num, d)).astype(mx.float32))
 
 def make_binary_data(num: int, d: int) -> mx.array:
     """Generate binary test data."""
-    return array(mx.random.randint(0, 2, shape=(num, d), dtype=mx.uint8).tolist())
+    return array(mx.random.randint(0, 2, shape=(num, d), dtype=mx.uint8))
 
 class TestIVFSearch(unittest.TestCase):
     """Test IVF search functionality."""

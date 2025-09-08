@@ -11,9 +11,9 @@ from typing import List, Tuple
 from ..index.binary_ivf_index import BinaryIVFIndex
 from ..index.binary_flat_index import BinaryFlatIndex
 
-def generate_binary_vectors(n: int, d: int) -> List[List[int]]:
-    """Generate random binary vectors."""
-    return mx.random.randint(0, 2, shape=(n, d), dtype=mx.uint8).tolist()
+def generate_binary_vectors(n: int, d: int) -> mx.array:
+    """Generate random binary vectors as MLX array."""
+    return mx.random.randint(0, 2, shape=(n, d), dtype=mx.uint8)
 
 def hamming_distance(x: List[int], y: List[int]) -> int:
     """Compute Hamming distance between binary vectors."""
@@ -31,9 +31,9 @@ class TestBinaryIVFIndex(unittest.TestCase):
         # Create vectors with some structure
         # Half the vectors are closer to 0s, half closer to 1s
         n_half = self.n // 2
-        zeros = mx.random.randint(0, 2, shape=(n_half, self.d), dtype=mx.uint8).tolist()
-        ones = mx.random.randint(0, 2, shape=(n_half, self.d), dtype=mx.uint8).tolist()
-        self.vectors = zeros + ones
+        zeros = mx.random.randint(0, 2, shape=(n_half, self.d), dtype=mx.uint8)
+        ones = mx.random.randint(0, 2, shape=(n_half, self.d), dtype=mx.uint8)
+        self.vectors = mx.concatenate([zeros, ones], axis=0)
         
         # Create quantizer and index
         self.quantizer = BinaryFlatIndex(self.d)
@@ -106,8 +106,9 @@ class TestBinaryIVFIndex(unittest.TestCase):
         
         # Verify IDs were stored
         vector = self.index.reconstruct(100)  # Should find first added vector
-        self.assertEqual(len(vector), self.d)
-        self.assertEqual(vector, more_vectors[0])
+        self.assertEqual(int(vector.shape[0]), 1)
+        self.assertEqual(int(vector.shape[1]), self.d)
+        self.assertTrue(bool(mx.all(mx.equal(vector, more_vectors[0:1])).item()))  # boundary-ok
         
     def test_searching(self):
         """Test nearest neighbor search."""
@@ -115,35 +116,30 @@ class TestBinaryIVFIndex(unittest.TestCase):
         self.index.add(self.vectors)
         
         # Search with k=1
-        query = self.vectors[:1]  # Should find itself
+        query = self.vectors[:1]
         result = self.index.search(query, k=1)
         
-        self.assertEqual(len(result.distances), 1)
-        self.assertEqual(len(result.labels), 1)
-        self.assertEqual(result.distances[0][0], 0)  # Exact match
+        self.assertEqual(int(result.distances.shape[0]), 1)
+        self.assertEqual(int(result.indices.shape[0]), 1)
+        self.assertEqual(float(result.distances[0, 0].item()), 0.0)  # boundary-ok, Exact match
         
         # Search with k=5 and different nprobe values
-        query = generate_binary_vectors(1, self.d)[0]
+        query = generate_binary_vectors(1, self.d)
         k = 5
         
         for nprobe in [1, 2, 5, self.nlist]:
             self.index.nprobe = nprobe
-            result = self.index.search([query], k)
+            result = self.index.search(query, k)
             
             # Basic checks
-            self.assertEqual(len(result.distances[0]), k)
-            self.assertTrue(all(d >= 0 for d in result.distances[0]))
-            self.assertTrue(
-                all(d1 <= d2 for d1, d2 in zip(
-                    result.distances[0],
-                    result.distances[0][1:]
-                ))
-            )  # Sorted distances
+            self.assertEqual(int(result.distances.shape[1]), k)
+            self.assertTrue(bool(mx.all(mx.greater_equal(result.distances, mx.zeros_like(result.distances))).item()))  # boundary-ok
+            self.assertTrue(bool(mx.all(mx.less_equal(result.distances[:, :-1], result.distances[:, 1:])).item()))  # boundary-ok, Sorted distances
             
             # More probe should find same or better distances
             if nprobe > 1:
-                prev_dist = prev_result.distances[0][0]
-                curr_dist = result.distances[0][0]
+                prev_dist = float(prev_result.distances[0, 0].item())  # boundary-ok
+                curr_dist = float(result.distances[0, 0].item())  # boundary-ok
                 self.assertLessEqual(curr_dist, prev_dist)
                 
             prev_result = result

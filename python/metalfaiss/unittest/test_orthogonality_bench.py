@@ -38,7 +38,7 @@ def _orth_err_cols(Q: mx.array) -> float:
     QtQ = mx.matmul(mx.transpose(Q), Q)
     I = mx.eye(n)
     mx.eval(QtQ, I)
-    return float(mx.max(mx.abs(QtQ - I)).item())
+    return float(mx.max(mx.abs(QtQ - I)).item())  # boundary-ok
 
 
 class TestOrthogonalityBench(unittest.TestCase):
@@ -65,4 +65,3 @@ class TestOrthogonalityBench(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

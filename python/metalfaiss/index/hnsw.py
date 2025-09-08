@@ -120,25 +120,26 @@ class MinimaxHeap:
         min_dist = float(self._inf)
         
         # Use MLX operations for efficiency
-        valid_mask = self.ids != -1
-        if mx.sum(valid_mask) == 0:
-            return -1, float(self._inf)
+        valid_mask = mx.not_equal(self.ids, mx.array(-1, dtype=self.ids.dtype))
+        cnt = int(mx.sum(valid_mask).astype(mx.int32).item())  # boundary-ok
+        if cnt == 0:
+            return -1, float(self._inf.item())
             
         distances = mx.where(valid_mask, self.distances, self._inf)
-        min_dist = float(mx.min(distances))
-        min_indices = mx.where(distances == min_dist)[0]
-        min_idx = int(mx.max(min_indices))  # Take rightmost minimum
+        min_dist_arr = mx.min(distances)
+        min_indices = mx.where(mx.equal(distances, min_dist_arr))[0]
+        min_idx = int(mx.max(min_indices).item())  # boundary-ok, Take rightmost minimum
         
         # Get result and mark as invalid
-        result = int(self.ids[min_idx])
+        result = int(self.ids[min_idx].item())
         self.ids = mx.scatter(self.ids, mx.array([min_idx]), mx.array([-1]))
         self.nvalid -= 1
         
-        return result, min_dist
+        return result, float(min_dist_arr.item())  # boundary-ok
         
     def count_below(self, threshold: float) -> int:
         """Count elements below threshold."""
-        return int(mx.sum(self.distances < threshold))
+        return int(mx.sum(mx.less(self.distances, mx.array(threshold, dtype=self.distances.dtype))).astype(mx.int32).item())  # boundary-ok
 
 class HNSW:
     """HNSW implementation following FAISS."""
@@ -428,7 +429,7 @@ class HNSW:
             n = len(neighbors)
             for i in range(0, n, 4):
                 batch = neighbors[i:min(i+4, n)]
-                batch = batch[batch != -1]
+                batch = batch[mx.not_equal(batch, mx.array(-1, dtype=batch.dtype))]
                 if len(batch) == 0:
                     continue
                     
@@ -523,15 +524,16 @@ class HNSW:
             # Build neighbors for current frontier (level 0 only)
             deg = self.M0
             offs = mx.take(self.offsets, cand_ids, axis=0)  # (c,)
-            grid = offs.reshape((-1, 1)) + mx.arange(deg, dtype=offs.dtype).reshape((1, -1))  # (c,deg)
+            grid = mx.add(offs.reshape((-1, 1)), mx.arange(deg, dtype=offs.dtype).reshape((1, -1)))  # (c,deg)
             neigh2d = mx.take(self.neighbors, grid, axis=0)  # (c,deg)
             neigh = neigh2d.reshape((-1,))
-            valid = neigh >= 0
+            valid = mx.greater_equal(neigh, mx.zeros_like(neigh))
             # Filter not-yet-visited
             safe_neigh = mx.where(valid, neigh, mx.zeros_like(neigh))
             vis = mx.take(visited, safe_neigh)
-            notvis = mx.logical_and(valid, vis == 0)
-            if mx.sum(notvis) == 0:
+            notvis = mx.logical_and(valid, mx.equal(vis, mx.zeros_like(vis)))
+            nnz = int(mx.sum(notvis).astype(mx.int32).item())  # boundary-ok
+            if nnz == 0:
                 break
             # Build safe ids (replace invalid with 0) and inf distances for invalid
             new_ids_all = mx.where(notvis, neigh, mx.add(mx.zeros_like(neigh), mx.array(-1, dtype=neigh.dtype)))
@@ -539,11 +541,11 @@ class HNSW:
             new_vecs = mx.take(vectors, safe_ids, axis=0)
             new_d = _dist(new_vecs)
             infv = mx.divide(mx.ones_like(new_d), mx.zeros_like(new_d))
-            new_d = mx.where(new_ids_all >= 0, new_d, infv)
+            new_d = mx.where(mx.greater_equal(new_ids_all, mx.zeros_like(new_ids_all)), new_d, infv)
             # Mark visited for valid ids
             ones_u8 = mx.add(mx.zeros_like(safe_ids), mx.array(1, dtype=mx.uint8))
             zeros_u8 = mx.add(mx.zeros_like(safe_ids), mx.array(0, dtype=mx.uint8))
-            upd = mx.where(new_ids_all >= 0, ones_u8, zeros_u8)
+            upd = mx.where(mx.greater_equal(new_ids_all, mx.zeros_like(new_ids_all)), ones_u8, zeros_u8)
             visited = self._scatter1d(visited, safe_ids, upd)
             cand_ids = mx.concatenate([cand_ids, safe_ids], axis=0)
             cand_d = mx.concatenate([cand_d, new_d], axis=0)

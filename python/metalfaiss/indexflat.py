@@ -11,6 +11,7 @@ from .metric_type import MetricType
 from .utils.search_result import SearchResult
 from .distances import pairwise_L2sqr
 from .utils.sorting import mlx_topk
+from .faissmlx.device_guard import require_gpu
 
 class FlatIndex:
     """
@@ -40,6 +41,8 @@ class FlatIndex:
             xs: A list of vectors (each a list of floats).
             ids: Optional list of integer IDs. If not provided, sequential IDs are used.
         """
+        # Enforce GPU usage for compute-heavy operations
+        require_gpu("FlatIndex.add")
         # Convert the list of vectors to an MLX array
         new_vectors = mx.array(xs, dtype=mx.float32)
         n_new = new_vectors.shape[0]
@@ -75,6 +78,8 @@ class FlatIndex:
         Returns:
             A SearchResult object containing distances and corresponding indices.
         """
+        # Enforce GPU usage for compute-heavy operations
+        require_gpu("FlatIndex.search")
         if self.xb is None or self.ntotal == 0:
             raise ValueError("Index is empty; add vectors before searching.")
         # Accept either Python lists or MLX arrays to allow compiled call-sites

@@ -60,7 +60,7 @@ class _SimpleQuantizer:
             # simple mean per cluster (not handling empty clusters carefully)
             for j in range(k):
                 mask = (I == j)
-                cnt = int(mx.sum(mask).item())
+                cnt = int(mx.sum(mask).item())  # boundary-ok
                 if cnt > 0:
                     C[j] = mx.sum(xs * mask[:, None], axis=0) / cnt
         self.centroids = C
@@ -82,7 +82,7 @@ def _build_ivf_inmemory(d: int, nlist: int, N: int, seed: int = 0):
     I = mx.argmin(d2, axis=1)
     invlists = [[] for _ in range(nlist)]
     for i in range(N):
-        invlists[int(I[i].item())].append((i, xb[i]))
+        invlists[int(I[i].item())].append((i, xb[i]))  # boundary-ok
     return q, invlists, xb
 
 
@@ -99,7 +99,7 @@ class TestIVFBenchmarks(unittest.TestCase):
         q, X_lists, xb = _build_ivf_inmemory(d, nlist, N)
 
         xq = mx.random.normal(shape=(queries, d)).astype(mx.float32)
-        xq_list = xq.tolist()
+        xq_list = xq.tolist()  # boundary-ok (benchmark display)
 
         for k in ks:
             for nprobe in nprobes:

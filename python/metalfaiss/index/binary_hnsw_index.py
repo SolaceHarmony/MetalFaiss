@@ -14,6 +14,7 @@ from .binary_index import BaseBinaryIndex
 from .hnsw import HNSW, HNSWStats
 from ..utils.search_result import SearchResult
 from ..errors import InvalidArgumentError
+from ..faissmlx.device_guard import require_gpu
 
 class BinaryHNSWIndex(BaseBinaryIndex):
     """Binary HNSW index.
@@ -79,6 +80,7 @@ class BinaryHNSWIndex(BaseBinaryIndex):
         xs: List[List[int]],
         ids: Optional[List[int]] = None
     ) -> None:
+        require_gpu("BinaryHNSWIndex.add")
         """Add binary vectors to the index.
         
         Args:
@@ -125,6 +127,7 @@ class BinaryHNSWIndex(BaseBinaryIndex):
         self._ntotal += n
         
     def _search(self, xs: List[List[int]], k: int) -> SearchResult:
+        require_gpu("BinaryHNSWIndex.search")
         """Search for nearest neighbors by Hamming distance.
         
         Uses HNSW graph to efficiently find approximate nearest neighbors
@@ -155,7 +158,7 @@ class BinaryHNSWIndex(BaseBinaryIndex):
                     x[i:i+1],
                     self.xb[j:j+1]
                 )[0, 0]
-                return float(dist.astype(mx.float32))
+                return float(dist.astype(mx.float32).item())  # boundary-ok
                 
             # Search HNSW graph
             results = self.hnsw.search(
@@ -188,7 +191,7 @@ class BinaryHNSWIndex(BaseBinaryIndex):
                 iv = mx.concatenate([iv, mx.full((pad,), -1, dtype=mx.int32)])
             # Map to external IDs if present
             if self.ids is not None:
-                mask = iv >= 0
+                mask = mx.greater_equal(iv, mx.zeros_like(iv))
                 mapped = mx.where(mask, mx.take(self.ids, mx.maximum(iv, mx.zeros_like(iv))), mx.full_like(iv, -1))
                 iv = mapped.astype(mx.int32)
             out_vals = mx.scatter(out_vals, mx.array([i]), dv.reshape((1, k)))
@@ -196,7 +199,7 @@ class BinaryHNSWIndex(BaseBinaryIndex):
 
         return SearchResult(distances=out_vals, indices=out_ids)
         
-    def _reconstruct(self, key: int) -> List[int]:
+    def _reconstruct(self, key: int) -> mx.array:
         """Reconstruct vector from storage.
         
         Args:
@@ -212,12 +215,12 @@ class BinaryHNSWIndex(BaseBinaryIndex):
         if self.xb is None or self.ids is None:
             raise RuntimeError("No vectors added to index")
             
-        # Find position for ID
-        pos = mx.argmax(self.ids == key)
-        if pos >= len(self.ids) or self.ids[pos] != key:
+        # Find positions for ID using MLX only
+        eq = mx.equal(self.ids, mx.array(key, dtype=self.ids.dtype))
+        idxs = mx.where(eq)[0]
+        if int(idxs.shape[0]) == 0:
             raise ValueError(f"Invalid key {key}")
-            
-        return self.xb[pos].tolist()
+        return self.xb[idxs[0]]
         
     def reset(self) -> None:
         """Reset the index."""

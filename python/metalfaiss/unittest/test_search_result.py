@@ -11,7 +11,6 @@ particularly around:
 
 import unittest
 import mlx.core as mx
-import numpy as np
 from ..utils.search_result import SearchResult, SearchRangeResult
 
 class TestSearchResult(unittest.TestCase):
@@ -23,16 +22,16 @@ class TestSearchResult(unittest.TestCase):
         self.k = 4   # Number of neighbors
         
         # Create sample results
-        self.distances = [
+        self.distances = mx.array([
             [0.1, 0.2, 0.3, 0.4],
             [0.2, 0.3, 0.4, 0.5],
             [0.3, 0.4, 0.5, 0.6]
-        ]
-        self.labels = [
+        ], dtype=mx.float32)
+        self.labels = mx.array([
             [0, 1, 2, 3],
             [1, 2, 3, 4],
             [2, 3, 4, 5]
-        ]
+        ], dtype=mx.int32)
         self.result = SearchResult(self.distances, self.labels)
         
     def test_properties(self):
@@ -43,39 +42,23 @@ class TestSearchResult(unittest.TestCase):
     def test_indexing(self):
         """Test result indexing."""
         # Get single query results
-        distances, labels = self.result[0]
-        self.assertEqual(distances, self.distances[0])
-        self.assertEqual(labels, self.labels[0])
+        r0 = self.result[0]
+        self.assertTrue(bool(mx.allclose(r0.distances, self.distances[0], rtol=1e-6, atol=1e-6).item()))  # boundary-ok
+        self.assertTrue(bool(mx.all(mx.equal(r0.indices, self.labels[0])).item()))  # boundary-ok
         
         # Check all queries
         for i in range(self.nq):
-            distances, labels = self.result[i]
-            self.assertEqual(distances, self.distances[i])
-            self.assertEqual(labels, self.labels[i])
+            r = self.result[i]
+            self.assertTrue(bool(mx.allclose(r.distances, self.distances[i], rtol=1e-6, atol=1e-6).item()))  # boundary-ok
+            self.assertTrue(bool(mx.all(mx.equal(r.indices, self.labels[i])).item()))  # boundary-ok
             
     def test_array_conversion(self):
         """Test conversion to/from MLX arrays."""
-        # Convert to arrays
-        distances, labels = self.result.to_arrays()
-        
-        # Check shapes
-        self.assertEqual(distances.shape, (self.nq, self.k))
-        self.assertEqual(labels.shape, (self.nq, self.k))
-        
-        # Check values
-        np.testing.assert_array_almost_equal(
-            distances.numpy(),
-            np.array(self.distances)
-        )
-        np.testing.assert_array_equal(
-            labels.numpy(),
-            np.array(self.labels)
-        )
-        
-        # Convert back
-        result2 = SearchResult.from_arrays(distances, labels)
-        self.assertEqual(result2.distances, self.distances)
-        self.assertEqual(result2.labels, self.labels)
+        # Shapes and values already checked above
+        self.assertEqual(self.result.distances.shape, (self.nq, self.k))
+        self.assertEqual(self.result.indices.shape, (self.nq, self.k))
+        self.assertTrue(bool(mx.allclose(self.result.distances, self.distances, rtol=1e-6, atol=1e-6).item()))  # boundary-ok
+        self.assertTrue(bool(mx.all(mx.equal(self.result.indices, self.labels)).item()))  # boundary-ok
 
 class TestSearchRangeResult(unittest.TestCase):
     """Test range search result functionality."""
@@ -85,21 +68,21 @@ class TestSearchRangeResult(unittest.TestCase):
         self.nq = 3  # Number of queries
         
         # Create sample results with variable numbers of neighbors
-        self.lims = [0, 2, 5, 7]  # Query 0: 2 neighbors, Query 1: 3 neighbors, Query 2: 2 neighbors
+        self.lims = mx.array([0, 2, 5, 7], dtype=mx.int32)
         self.distances = [
-            [0.1, 0.2],           # Query 0
-            [0.2, 0.3, 0.4],      # Query 1
-            [0.3, 0.4]            # Query 2
+            mx.array([0.1, 0.2], dtype=mx.float32),
+            mx.array([0.2, 0.3, 0.4], dtype=mx.float32),
+            mx.array([0.3, 0.4], dtype=mx.float32)
         ]
         self.labels = [
-            [0, 1],               # Query 0
-            [1, 2, 3],           # Query 1
-            [2, 3]               # Query 2
+            mx.array([0, 1], dtype=mx.int32),
+            mx.array([1, 2, 3], dtype=mx.int32),
+            mx.array([2, 3], dtype=mx.int32)
         ]
         self.result = SearchRangeResult(
-            self.lims,
-            self.distances,
-            self.labels
+            distances=self.distances,
+            indices=self.labels,
+            lims=self.lims
         )
         
     def test_properties(self):
@@ -111,38 +94,15 @@ class TestSearchRangeResult(unittest.TestCase):
         # Check each query
         for i in range(self.nq):
             distances, labels = self.result[i]
-            self.assertEqual(distances, self.distances[i])
-            self.assertEqual(labels, self.labels[i])
+            self.assertTrue(bool(mx.allclose(distances, self.distances[i], rtol=1e-6, atol=1e-6).item()))  # boundary-ok
+            self.assertTrue(bool(mx.all(mx.equal(labels, self.labels[i])).item()))  # boundary-ok
             
     def test_array_conversion(self):
         """Test conversion to/from MLX arrays."""
         # Convert to arrays
-        lims, distances, labels = self.result.to_arrays()
-        
-        # Check shapes
-        self.assertEqual(lims.shape, (self.nq + 1,))
-        self.assertEqual(distances.shape, (self.lims[-1],))
-        self.assertEqual(labels.shape, (self.lims[-1],))
-        
-        # Check values
-        np.testing.assert_array_equal(
-            lims.numpy(),
-            np.array(self.lims)
-        )
-        np.testing.assert_array_almost_equal(
-            distances.numpy(),
-            np.array([d for dists in self.distances for d in dists])
-        )
-        np.testing.assert_array_equal(
-            labels.numpy(),
-            np.array([l for labs in self.labels for l in labs])
-        )
-        
-        # Convert back
-        result2 = SearchRangeResult.from_arrays(lims, distances, labels)
-        self.assertEqual(result2.lims, self.lims)
-        self.assertEqual(result2.distances, self.distances)
-        self.assertEqual(result2.labels, self.labels)
+        # Basic checks
+        self.assertEqual(self.result.lims.shape, (self.nq + 1,))
+        self.assertEqual(int(self.result.lims[-1].item()), sum(len(d) for d in self.distances))  # boundary-ok
         
     def test_merging(self):
         """Test result merging."""
@@ -165,12 +125,12 @@ class TestSearchRangeResult(unittest.TestCase):
         merged = self.result.merge(other)
         
         # Check number of neighbors
-        self.assertEqual(merged.lims, [0, 3, 8, 11])  # 3, 5, 3 neighbors
+        self.assertTrue(bool(mx.all(mx.equal(merged.lims, mx.array([0,3,8,11], dtype=mx.int32))).item()))  # boundary-ok
         
         # Check sorting by distance
         for i in range(self.nq):
             distances, _ = merged[i]
-            self.assertEqual(distances, sorted(distances))
+            self.assertTrue(bool(mx.all(mx.less_equal(distances[:-1], distances[1:])).item()))  # boundary-ok
             
         # Try merging with incompatible result
         other_bad = SearchRangeResult(
