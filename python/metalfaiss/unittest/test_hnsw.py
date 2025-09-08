@@ -11,7 +11,7 @@ original FAISS implementation, particularly around:
 
 import unittest
 import mlx.core as mx
-import numpy as np
+import math
 from typing import List, Tuple
 from ..types.metric_type import MetricType
 from ..index.hnsw import HNSW, MinimaxHeap, HNSWStats
@@ -86,13 +86,16 @@ class TestHNSW(unittest.TestCase):
         self.assertTrue(max(levels) < 32)  # Should not exceed max level
         self.assertTrue(min(levels) >= 0)  # Should not be negative
         
-        # Count levels
-        level_counts = np.bincount(levels)
+        # Count levels (pure Python)
+        max_level = max(levels)
+        level_counts = [0] * (max_level + 1)
+        for lv in levels:
+            level_counts[lv] += 1
         
         # Check exponential distribution property
         for i in range(1, len(level_counts)-1):
             ratio = level_counts[i] / level_counts[i-1]
-            expected_ratio = np.exp(-1 / self.hnsw.level_mult)
+            expected_ratio = math.exp(-1 / self.hnsw.level_mult)
             self.assertAlmostEqual(ratio, expected_ratio, delta=0.1)
             
     def test_neighbor_selection(self):
@@ -145,15 +148,15 @@ class TestHNSWIndex(unittest.TestCase):
     
     def setUp(self):
         # Create synthetic test data
-        np.random.seed(42)
+        mx.random.seed(42)
         self.d = 16
         self.n_train = 1000
         self.n_test = 10
         self.k = 5
         
         # Generate random vectors
-        self.train_data = np.random.randn(self.n_train, self.d).astype(np.float32)
-        self.test_data = np.random.randn(self.n_test, self.d).astype(np.float32)
+        self.train_data = mx.random.normal(shape=(self.n_train, self.d)).astype(mx.float32)
+        self.test_data = mx.random.normal(shape=(self.n_test, self.d)).astype(mx.float32)
         
         # Create index
         self.index = HNSWFlatIndex(d=self.d, M=16)
@@ -161,60 +164,62 @@ class TestHNSWIndex(unittest.TestCase):
     def test_add_search(self):
         """Test adding vectors and searching."""
         # Add vectors
-        self.index.add(self.train_data.tolist())
+        self.index.add(self.train_data)
         self.assertEqual(self.index.ntotal, self.n_train)
         
         # Search
-        result = self.index.search(self.test_data.tolist(), self.k)
+        result = self.index.search(self.test_data, self.k)
         
         # Check result format
-        self.assertEqual(len(result.distances), self.n_test)
-        self.assertEqual(len(result.labels), self.n_test)
-        self.assertEqual(len(result.distances[0]), self.k)
-        self.assertEqual(len(result.labels[0]), self.k)
+        self.assertEqual(int(result.distances.shape[0]), self.n_test)
+        self.assertEqual(int(result.indices.shape[0]), self.n_test)
+        self.assertEqual(int(result.distances.shape[1]), self.k)
+        self.assertEqual(int(result.indices.shape[1]), self.k)
         
         # Check distances are sorted
-        for dists in result.distances:
-            self.assertEqual(dists, sorted(dists))
+        for i in range(self.n_test):
+            drow = result.distances[i]
+            self.assertTrue(bool(mx.all(mx.less_equal(drow[:-1], drow[1:])).item()))
             
         # Check labels are valid
-        for labels in result.labels:
-            self.assertTrue(all(0 <= l < self.n_train for l in labels))
+        for i in range(self.n_test):
+            lrow = result.indices[i]
+            self.assertTrue(bool(mx.all(mx.logical_and(mx.greater_equal(lrow, 0), mx.less(lrow, self.n_train))).item()))
             
     def test_reconstruction(self):
         """Test vector reconstruction."""
         # Add vectors
-        self.index.add(self.train_data.tolist())
+        self.index.add(self.train_data)
         
         # Reconstruct some vectors
         for i in range(10):
             reconstructed = self.index.reconstruct(i)
             original = self.train_data[i]
-            
-            # Check reconstruction is exact
-            np.testing.assert_array_almost_equal(reconstructed, original)
+            self.assertTrue(bool(mx.allclose(reconstructed, original, rtol=1e-6, atol=1e-6).item()))
             
     def test_search_accuracy(self):
         """Test search accuracy against exact search."""
         # Add vectors
-        self.index.add(self.train_data.tolist())
+        self.index.add(self.train_data)
         
         # Compute exact distances
         query = self.test_data[0]
-        exact_dists = np.sum((self.train_data - query) ** 2, axis=1)
-        exact_indices = np.argsort(exact_dists)[:self.k]
+        diffs = mx.subtract(self.train_data, query)
+        exact_dists = mx.sum(mx.square(diffs), axis=1)
+        order = mx.argsort(exact_dists)
+        exact_indices = order[: self.k]
         
         # HNSW search
-        result = self.index.search([query.tolist()], self.k)
-        hnsw_indices = result.labels[0]
+        result = self.index.search(query.reshape((1, -1)), self.k)
+        hnsw_indices = result.indices[0]
         
         # Compare results - should have good recall
-        recall = len(set(exact_indices) & set(hnsw_indices)) / self.k
+        recall = len(set(int(i.item()) for i in exact_indices) & set(int(i.item()) for i in hnsw_indices)) / self.k
         self.assertGreater(recall, 0.8)  # At least 80% recall
         
     def test_batch_computation(self):
         """Test batch distance computation."""
-        self.index.add(self.train_data.tolist())
+        self.index.add(self.train_data)
         
         # Single query
         query = mx.array(self.test_data[0], dtype=mx.float32)
@@ -227,17 +232,14 @@ class TestHNSWIndex(unittest.TestCase):
         individual_dists = []
         for i in range(4):
             if self.index.metric_type == MetricType.L2:
-                diff = vectors[i] - query
-                dist = float(mx.sum(diff * diff))
+                diff = mx.subtract(vectors[i], query)
+                dist = float(mx.sum(mx.multiply(diff, diff)).item())
             else:
-                dist = -float(mx.dot(vectors[i], query))
+                dist = -float(mx.dot(vectors[i], query).item())
             individual_dists.append(dist)
             
         # Compare results
-        np.testing.assert_array_almost_equal(
-            batch_dists.numpy(),
-            np.array(individual_dists)
-        )
+        self.assertTrue(bool(mx.allclose(batch_dists, mx.array(individual_dists, dtype=batch_dists.dtype), rtol=1e-6, atol=1e-6).item()))
 
 if __name__ == '__main__':
     unittest.main()

@@ -28,8 +28,10 @@ def large_dataset_example():
     d = 128
     
     print(f"Generating {n_vectors} random {d}-dimensional vectors...")
-    mx.random.seed(42)
-    vectors = mx.random.normal(shape=(n_vectors, d)).astype(mx.float32)
+    from metalfaiss.utils.rng_utils import new_key, split2
+    base = new_key(42)
+    k_vec, k_q = split2(base)
+    vectors = mx.random.normal(shape=(n_vectors, d), key=k_vec).astype(mx.float32)
     # Normalize vectors for better distribution
     norms = mx.sqrt(mx.sum(mx.square(vectors), axis=1, keepdims=True))
     norms = mx.where(mx.greater(norms, mx.zeros_like(norms)), norms, mx.ones_like(norms))
@@ -45,7 +47,7 @@ def large_dataset_example():
     
     # Generate query vectors
     n_queries = 100
-    queries = mx.random.normal(shape=(n_queries, d)).astype(mx.float32)
+    queries = mx.random.normal(shape=(n_queries, d), key=k_q).astype(mx.float32)
     qnorms = mx.sqrt(mx.sum(mx.square(queries), axis=1, keepdims=True))
     qnorms = mx.where(mx.greater(qnorms, mx.zeros_like(qnorms)), qnorms, mx.ones_like(qnorms))
     queries = mx.divide(queries, qnorms)
@@ -123,7 +125,8 @@ def batch_operations_example():
         print(f"Adding batch {i+1}: {batch_size} vectors")
         
         # Generate batch
-        batch = mx.random.normal(shape=(batch_size, d)).astype(mx.float32)
+    k_b, k_b_next = split2(k_q)
+    batch = mx.random.normal(shape=(batch_size, d), key=k_b).astype(mx.float32)
         
         # Add to index
         start_time = time.time()
@@ -137,7 +140,8 @@ def batch_operations_example():
     print(f"Final index size: {index.ntotal} vectors")
     
     # Test search on the complete index
-    query = mx.random.normal(shape=(1, d)).astype(mx.float32)
+    _, k_last = split2(k_b_next)
+    query = mx.random.normal(shape=(1, d), key=k_last).astype(mx.float32)
     result = index.search(query, k=5)
     
     print(f"Sample search result distances: {result.distances[0]}")

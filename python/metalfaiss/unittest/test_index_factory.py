@@ -7,7 +7,7 @@ Tests for Index Factory System
 """
 
 import unittest
-import numpy as np
+import mlx.core as mx
 import mlx.core as mx
 
 from metalfaiss import index_factory, get_supported_descriptions, MetricType
