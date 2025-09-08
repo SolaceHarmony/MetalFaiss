@@ -327,11 +327,26 @@ class MetalFaissVisitor(ast.NodeVisitor):
                     if op_type is ast.Mult:
                         suggestion = (
                             "mx.multiply(a, b)  (matrix? mx.matmul(a, b); "
-                            "scalar? mx.multiply(a, mx.array(s, dtype=a.dtype)))"
+                            "scalar? mx.multiply(a, mx.array(s, dtype=a.dtype)))\n"
+                            "Examples: diff=mx.subtract(x,y); d2=mx.multiply(diff,diff)  # avoid (x-y)*(x-y)"
                         )
+                        # Special-case (x - y) * (x - y) and a*a patterns
+                        try:
+                            def _same_ast(a, b):
+                                return ast.dump(a, annotate_fields=False, include_attributes=False) == \
+                                       ast.dump(b, annotate_fields=False, include_attributes=False)
+                            if _same_ast(node.left, node.right):
+                                # a*a → recommend mx.square(a)
+                                suggestion += "\nHint: use mx.square(a) for elementwise square."
+                            if isinstance(node.left, ast.BinOp) and isinstance(node.right, ast.BinOp) \
+                               and isinstance(node.left.op, ast.Sub) and isinstance(node.right.op, ast.Sub) \
+                               and _same_ast(node.left, node.right):
+                                suggestion += "\nPattern: (x - y)*(x - y) → diff=mx.subtract(x,y); d2=mx.multiply(diff,diff)"
+                        except Exception:
+                            pass
                     elif op_type is ast.Add:
                         suggestion = (
-                            "mx.add(a, b)  (need join? mx.concatenate([a, b], axis=...))"
+                            "mx.add(a, b)  (concatenate arrays: mx.concatenate([a,b], axis=...))"
                         )
                     elif op_type is ast.Sub:
                         suggestion = (
@@ -339,19 +354,21 @@ class MetalFaissVisitor(ast.NodeVisitor):
                         )
                     elif op_type is ast.Div:
                         suggestion = (
-                            "mx.divide(a, b)  (floor: mx.floor_divide(a, b); "
-                            "scalar? mx.divide(a, mx.array(s, dtype=a.dtype)))"
+                            "mx.divide(a, b)  (floor: mx.floor_divide(a,b); scalar: mx.divide(a, mx.array(s,dtype=a.dtype)))\n"
+                            "Guard zeros: den = mx.where(mx.greater(den, mx.zeros_like(den)), den, mx.ones_like(den))"
                         )
                     elif op_type is ast.FloorDiv:
                         suggestion = "mx.floor_divide(a, b)"
                     elif op_type is ast.Mod:
                         suggestion = "mx.remainder(a, b)"
                     elif op_type is ast.Pow:
-                        suggestion = "mx.power(a, b)  (square? mx.multiply(a, a))"
+                        suggestion = (
+                            "mx.power(a, b)  (square: mx.multiply(a,a); sqrt: mx.sqrt(a))"
+                        )
                     elif op_type is ast.MatMult:
                         suggestion = (
-                            "mx.matmul(a, b)  (ensure a.shape[-1] == b.shape[-2]; "
-                            "use mx.dot for 1D dot products)"
+                            "mx.matmul(a, b)  (ensure a.shape[-1] == b.shape[-2]; use mx.transpose(a) instead of a.T; "
+                            "1D dot: mx.dot(x, y))"
                         )
                 location = f"{self.current_function}:{node.lineno}" if self.current_function else f"line {node.lineno}"
                 
@@ -396,12 +413,28 @@ class MetalFaissVisitor(ast.NodeVisitor):
                     'suggestion': 'mx.bitwise_not(x)'
                 })
         self.generic_visit(node)
-    
+
+    def visit_Attribute(self, node):
+        """Catch array.T usage and suggest mx.transpose."""
+        # x.T → mx.transpose(x)
+        try:
+            if SUGGEST_OPS and isinstance(node.attr, str) and node.attr == 'T' and _has_mx(node.value):
+                location = f"{self.current_function}:{node.lineno}" if self.current_function else f"line {node.lineno}"
+                self.python_operators.append({
+                    'type': '.T',
+                    'location': location,
+                    'line': node.lineno,
+                    'suggestion': 'use mx.transpose(x); specify axes for >2D tensors'
+                })
+        except Exception:
+            pass
+        self.generic_visit(node)
+
     def visit_Compare(self, node):
         """Visit comparison operations."""
         if SUGGEST_OPS:
             ops_map = {
-                ast.Eq: ("==", "mx.equal(a, b)  (floats? mx.allclose(a, b, rtol=1e-5, atol=1e-8))"),
+                ast.Eq: ("==", "mx.equal(a, b)  (floats? mx.allclose(a,b,rtol=1e-5,atol=1e-8); to Python: bool(mx.all(...).item()))"),
                 ast.NotEq: ("!=", "mx.not_equal(a, b)"),
                 ast.Lt: ("<", "mx.less(a, b)"),
                 ast.LtE: ("<=", "mx.less_equal(a, b)"),
@@ -485,6 +518,29 @@ class MetalFaissVisitor(ast.NodeVisitor):
                         'line': node.lineno
                     })
         
+        # Pattern: mx.sum((x - y) * (x - y)) → mx.sum(mx.square(mx.subtract(x, y)))
+        try:
+            if SUGGEST_OPS and isinstance(node.func, ast.Attribute):
+                if isinstance(node.func.value, ast.Name) and node.func.value.id == 'mx' and node.func.attr == 'sum':
+                    if node.args:
+                        arg0 = node.args[0]
+                        if isinstance(arg0, ast.BinOp) and isinstance(arg0.op, ast.Mult):
+                            left, right = arg0.left, arg0.right
+                            def _same_ast(a, b):
+                                return ast.dump(a, annotate_fields=False, include_attributes=False) == \
+                                       ast.dump(b, annotate_fields=False, include_attributes=False)
+                            if _same_ast(left, right):
+                                # If it looks like (a-a) or (x-y)*(x-y)
+                                loc = f"{self.current_function}:{node.lineno}" if self.current_function else f"line {node.lineno}"
+                                self.python_operators.append({
+                                    'type': 'sum(square)',
+                                    'location': loc,
+                                    'line': node.lineno,
+                                    'suggestion': 'mx.sum(mx.square(expr))  (and expr via mx.subtract(x, y) if from (x-y)*(x-y))'
+                                })
+        except Exception:
+            pass
+
         self.generic_visit(node)
 
 class UnusedImportVisitor(ast.NodeVisitor):
@@ -997,7 +1053,7 @@ def main():
     parser.add_argument("--unused-only", action="store_true", help="Only check for unused imports")
     parser.add_argument("--gpu-only", action="store_true", help="Only check for GPU enforcement issues")
     parser.add_argument("--mlx-only", action="store_true", help="Only check for MLX-specific issues (host pulls, comparisons, etc.)")
-    parser.add_argument("--suggest-ops", action="store_true", help="Add richer MLX suggestions for '*' and related operators")
+    parser.add_argument("--no-suggest-ops", action="store_true", help="Disable enriched MLX operator suggestions")
     
     args = parser.parse_args()
 
@@ -1015,8 +1071,8 @@ def main():
         args.json = True
     if not args.json_summary and cfg.get('json_summary') is True:
         args.json_summary = True
-    if not getattr(args, 'suggest_ops', False) and cfg.get('suggest_ops') is True:
-        args.suggest_ops = True
+    # Config can disable suggestions (default is enabled)
+    cfg_disable_suggest = cfg.get('suggest_ops') is False
     if not getattr(args, 'suggest_ops', False) and cfg.get('suggest_ops') is True:
         args.suggest_ops = True
 
@@ -1032,8 +1088,8 @@ def main():
             args.precision_only = args.conversion_only = args.operators_only = False
             args.unused_only = args.gpu_only = False
     
-    # Enable richer operator suggestions
-    globals()['SUGGEST_OPS'] = bool(getattr(args, 'suggest_ops', False))
+    # Enable/disable richer operator suggestions
+    globals()['SUGGEST_OPS'] = not bool(getattr(args, 'no_suggest_ops', False) or cfg_disable_suggest)
 
     # Check if the path is a file or directory
     if os.path.isfile(args.path) and args.path.endswith('.py'):
