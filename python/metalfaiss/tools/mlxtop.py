@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+# (Removed shebang - utility is importable; run with the project's Python interpreter)
 """
 mlxtop.py - Lightweight MLX device/streams/memory monitor
 

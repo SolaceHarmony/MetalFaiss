@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+# (Removed shebang - scripts in docs should be run via the project python environment)
 """
 Enhanced chart generator for MetalFaiss benchmarks
 Creates professional-looking charts with improved styling and competitive comparisons

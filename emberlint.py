@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+# (Removed shebang - this file is a module, not an executable script)
 """
 MetalFaissLint: A comprehensive linting tool for MetalFaiss codebase.
 
@@ -23,7 +23,8 @@ It helps ensure that MetalFaiss code remains GPU-optimized, efficient, and maint
 
 # Allow targeted scans by default (e.g., --operators-only)
 ALLOW_SINGLE_ISSUE_LINTING = True
-SUGGEST_OPS = False  # When true, add richer operator suggestions (e.g., '*' → mx.multiply/mx.matmul hints)
+# Default: provide richer MLX operator suggestions to improve developer and AI UX
+SUGGEST_OPS = True  # Override with --no-suggest-ops or suggest_ops: false in config
 
 import os
 import re
@@ -322,11 +323,36 @@ class MetalFaissVisitor(ast.NodeVisitor):
             op_type = type(node.op)
             if op_type in op_map:
                 op_sym, suggestion = op_map[op_type]
-                if SUGGEST_OPS and op_type is ast.Mult:
-                    suggestion = (
-                        "mx.multiply(a, b)  (matrix? use mx.matmul(a, b); "
-                        "scalar? mx.multiply(a, mx.array(scalar, dtype=a.dtype)))"
-                    )
+                if SUGGEST_OPS:
+                    if op_type is ast.Mult:
+                        suggestion = (
+                            "mx.multiply(a, b)  (matrix? mx.matmul(a, b); "
+                            "scalar? mx.multiply(a, mx.array(s, dtype=a.dtype)))"
+                        )
+                    elif op_type is ast.Add:
+                        suggestion = (
+                            "mx.add(a, b)  (need join? mx.concatenate([a, b], axis=...))"
+                        )
+                    elif op_type is ast.Sub:
+                        suggestion = (
+                            "mx.subtract(a, b)  (unary minus: mx.negative(x))"
+                        )
+                    elif op_type is ast.Div:
+                        suggestion = (
+                            "mx.divide(a, b)  (floor: mx.floor_divide(a, b); "
+                            "scalar? mx.divide(a, mx.array(s, dtype=a.dtype)))"
+                        )
+                    elif op_type is ast.FloorDiv:
+                        suggestion = "mx.floor_divide(a, b)"
+                    elif op_type is ast.Mod:
+                        suggestion = "mx.remainder(a, b)"
+                    elif op_type is ast.Pow:
+                        suggestion = "mx.power(a, b)  (square? mx.multiply(a, a))"
+                    elif op_type is ast.MatMult:
+                        suggestion = (
+                            "mx.matmul(a, b)  (ensure a.shape[-1] == b.shape[-2]; "
+                            "use mx.dot for 1D dot products)"
+                        )
                 location = f"{self.current_function}:{node.lineno}" if self.current_function else f"line {node.lineno}"
                 
                 if op_type in {ast.BitAnd, ast.BitOr, ast.BitXor}:
@@ -373,14 +399,24 @@ class MetalFaissVisitor(ast.NodeVisitor):
     
     def visit_Compare(self, node):
         """Visit comparison operations."""
-        ops_map = {
-            ast.Eq: ("==", "mx.equal(a, b)"),
-            ast.NotEq: ("!=", "mx.not_equal(a, b)"),
-            ast.Lt: ("<", "mx.less(a, b)"),
-            ast.LtE: ("<=", "mx.less_equal(a, b)"),
-            ast.Gt: (">", "mx.greater(a, b)"),
-            ast.GtE: (">=", "mx.greater_equal(a, b)"),
-        }
+        if SUGGEST_OPS:
+            ops_map = {
+                ast.Eq: ("==", "mx.equal(a, b)  (floats? mx.allclose(a, b, rtol=1e-5, atol=1e-8))"),
+                ast.NotEq: ("!=", "mx.not_equal(a, b)"),
+                ast.Lt: ("<", "mx.less(a, b)"),
+                ast.LtE: ("<=", "mx.less_equal(a, b)"),
+                ast.Gt: (">", "mx.greater(a, b)"),
+                ast.GtE: (">=", "mx.greater_equal(a, b)"),
+            }
+        else:
+            ops_map = {
+                ast.Eq: ("==", "mx.equal(a, b)"),
+                ast.NotEq: ("!=", "mx.not_equal(a, b)"),
+                ast.Lt: ("<", "mx.less(a, b)"),
+                ast.LtE: ("<=", "mx.less_equal(a, b)"),
+                ast.Gt: (">", "mx.greater(a, b)"),
+                ast.GtE: (">=", "mx.greater_equal(a, b)"),
+            }
         
         # Only flag if any side involves mx.*
         has_mx_any = _has_mx(node.left) or any(_has_mx(c) for c in node.comparators)

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+# (Removed shebang - this file is a module/script intended to be imported or run via python -m)
 """
 Performance Dashboard Generator for MetalFaiss
 Creates a summ    table_data = [
