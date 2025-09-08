@@ -2,7 +2,6 @@
 binary_transform.py - Binary vector transforms for MetalFaiss
 """
 
-import numpy as np
 import mlx.core as mx
 from typing import Optional, Tuple
 from .base_vector_transform import BaseVectorTransform

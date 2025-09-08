@@ -6,7 +6,6 @@ in HNSW.h/cpp, adapted to use MLX for efficient computation.
 """
 
 import mlx.core as mx
-import numpy as np
 from typing import List, Optional, Tuple, Dict, Set
 from dataclasses import dataclass
 import random

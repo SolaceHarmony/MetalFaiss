@@ -6,7 +6,6 @@ and functionality while leveraging MLX's GPU acceleration.
 """
 
 import mlx.core as mx
-import numpy as np
 from typing import List, Optional, Tuple
 
 class ProductQuantizer:

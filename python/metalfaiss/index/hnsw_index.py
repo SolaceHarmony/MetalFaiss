@@ -6,7 +6,6 @@ the HNSW graph structure with MLX-optimized vector storage and computations.
 """
 
 import mlx.core as mx
-import numpy as np
 from typing import List, Optional, Tuple
 from .base_index import BaseIndex
 from .hnsw import HNSW, HNSWStats

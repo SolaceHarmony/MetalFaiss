@@ -2,7 +2,7 @@
 binary_io.py - Binary I/O utilities for MetalFaiss
 """
 
-import numpy as np
+import numpy as np  # boundary-ok (I/O conversion only)
 import struct
 from typing import BinaryIO, Tuple, Union
 import mlx.core as mx
@@ -48,7 +48,7 @@ def write_binary_vector(f: BinaryIO, x: mx.array) -> None:
     f.write(dtype_str)
     
     # Write data
-    write_binary(f, x.numpy().tobytes())
+    write_binary(f, x.numpy().tobytes())  # boundary-ok
 
 def read_binary_vector(f: BinaryIO) -> mx.array:
     """Read binary vector from file.

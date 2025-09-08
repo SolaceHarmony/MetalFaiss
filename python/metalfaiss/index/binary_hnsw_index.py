@@ -8,7 +8,6 @@ Original: faiss/IndexBinaryHNSW.h
 """
 
 import mlx.core as mx
-import numpy as np
 from typing import List, Optional, Tuple, Callable
 from .binary_index import BaseBinaryIndex
 from .hnsw import HNSW, HNSWStats

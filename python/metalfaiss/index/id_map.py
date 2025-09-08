@@ -10,7 +10,6 @@ Original: faiss/IndexIDMap.h
 
 from typing import List, Dict, Optional, Any
 import mlx.core as mx
-import numpy as np
 from .base_index import BaseIndex
 from ..utils.search_result import SearchResult, SearchRangeResult
 from ..types.metric_type import MetricType
