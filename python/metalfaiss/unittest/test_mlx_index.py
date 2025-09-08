@@ -9,7 +9,7 @@ These tests verify index functionality using MLX, particularly focusing on:
 """
 
 import unittest
-import numpy as np
+import mlx.core as mx
 from .mlx_test_utils import assert_array_equal, assert_allclose
 import mlx.core as mx
 from typing import List, Tuple
