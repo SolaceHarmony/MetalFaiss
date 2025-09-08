@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+# (Removed shebang - examples are importable modules, not direct OS scripts)
 """
 Example usage of MetalFaiss - Basic vector search demo
 

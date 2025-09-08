@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+# (Removed shebang - scripts in docs should be run via the project python environment)
 """
 Validate benchmark docs against CSVs and suggest updated tables.
 
