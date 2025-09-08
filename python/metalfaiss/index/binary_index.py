@@ -9,7 +9,6 @@ Original: faiss/IndexBinary.h
 """
 
 import mlx.core as mx
-import numpy as np
 from typing import List, Optional, Union, Tuple
 from abc import ABC, abstractmethod
 from ..types.metric_type import MetricType

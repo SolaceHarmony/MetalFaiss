@@ -1,6 +1,5 @@
 from typing import List, Optional, Dict, Tuple
 import mlx.core as mx
-import numpy as np
 from .base_index import BaseIndex
 from .id_map import IDMap
 

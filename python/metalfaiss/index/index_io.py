@@ -5,7 +5,6 @@ index_io.py - Index I/O functions for MetalFaiss
 import os
 import json
 import struct
-import numpy as np
 import mlx.core as mx
 from enum import Enum, auto
 from typing import BinaryIO, Dict, List, Optional, Tuple, Union

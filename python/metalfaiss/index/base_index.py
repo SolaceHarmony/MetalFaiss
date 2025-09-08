@@ -5,7 +5,6 @@ base_index.py - Base class for all indices
 from ..utils.search_result import SearchResult, SearchRangeResult
 from ..types.metric_type import MetricType
 from typing import Optional, List, Tuple, Union
-import numpy as np
 import mlx.core as mx
 
 class BaseIndex:

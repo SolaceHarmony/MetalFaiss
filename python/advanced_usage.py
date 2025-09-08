@@ -12,7 +12,6 @@ This demonstrates more sophisticated usage patterns including:
 import sys
 import os
 import time
-import numpy as np
 import mlx.core as mx
 
 # Add the package path
@@ -29,12 +28,12 @@ def large_dataset_example():
     d = 128
     
     print(f"Generating {n_vectors} random {d}-dimensional vectors...")
-    np.random.seed(42)
-    vectors = np.random.normal(0, 1, (n_vectors, d)).astype(np.float32)
-    
+    mx.random.seed(42)
+    vectors = mx.random.normal(shape=(n_vectors, d)).astype(mx.float32)
     # Normalize vectors for better distribution
-    norms = np.linalg.norm(vectors, axis=1, keepdims=True)
-    vectors = vectors / norms
+    norms = mx.sqrt(mx.sum(mx.square(vectors), axis=1, keepdims=True))
+    norms = mx.where(mx.greater(norms, mx.zeros_like(norms)), norms, mx.ones_like(norms))
+    vectors = mx.divide(vectors, norms)
     
     # Create index and measure build time
     start_time = time.time()
@@ -46,8 +45,10 @@ def large_dataset_example():
     
     # Generate query vectors
     n_queries = 100
-    queries = np.random.normal(0, 1, (n_queries, d)).astype(np.float32)
-    queries = queries / np.linalg.norm(queries, axis=1, keepdims=True)
+    queries = mx.random.normal(shape=(n_queries, d)).astype(mx.float32)
+    qnorms = mx.sqrt(mx.sum(mx.square(queries), axis=1, keepdims=True))
+    qnorms = mx.where(mx.greater(qnorms, mx.zeros_like(qnorms)), qnorms, mx.ones_like(qnorms))
+    queries = mx.divide(queries, qnorms)
     
     # Measure search performance
     k = 10
@@ -122,7 +123,7 @@ def batch_operations_example():
         print(f"Adding batch {i+1}: {batch_size} vectors")
         
         # Generate batch
-        batch = np.random.normal(0, 1, (batch_size, d)).astype(np.float32)
+        batch = mx.random.normal(shape=(batch_size, d)).astype(mx.float32)
         
         # Add to index
         start_time = time.time()
@@ -136,7 +137,7 @@ def batch_operations_example():
     print(f"Final index size: {index.ntotal} vectors")
     
     # Test search on the complete index
-    query = mx.array(np.random.normal(0, 1, d).astype(np.float32)).reshape(1, -1)
+    query = mx.random.normal(shape=(1, d)).astype(mx.float32)
     result = index.search(query, k=5)
     
     print(f"Sample search result distances: {result.distances[0]}")

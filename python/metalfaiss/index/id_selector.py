@@ -9,7 +9,6 @@ Original: faiss/impl/IDSelector.h
 
 from abc import ABC, abstractmethod
 from typing import List, Set, Optional
-import numpy as np
 from dataclasses import dataclass
 
 class IDSelector(ABC):

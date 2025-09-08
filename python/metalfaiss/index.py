@@ -10,12 +10,11 @@
 # - faiss/IndexFlatCodes.cpp
 
 import mlx.core as mx
-import numpy as np
 from abc import ABC, abstractmethod
 from typing import Optional, List, Tuple
 
 from .metric_type import MetricType
-from .range_search import RangeSearchResult
+from .utils.search_result import SearchRangeResult
 from .utils.search_result import SearchResult
 
 FAISS_VERSION = (1, 10, 0)
@@ -88,7 +87,7 @@ class Index(ABC):
         """
         pass
 
-    def range_search(self, xs: List[List[float]], radius: float) -> RangeSearchResult:
+    def range_search(self, xs: List[List[float]], radius: float) -> SearchRangeResult:
         """Search for vectors within radius.
         
         Args:
@@ -98,10 +97,37 @@ class Index(ABC):
         Returns:
             Range search results
         """
-        # Default implementation using regular search
-        # Subclasses can override for more efficient implementations
-        from .range_search import range_search_with_index
-        return range_search_with_index(self, xs, radius)
+        # Default MLX implementation using kNN then filter-by-radius per query
+        xq = mx.array(xs, dtype=mx.float32)
+        nq = int(xq.shape[0])
+        # Use k=min(ntotal, 100) heuristic
+        k = min(100, self.ntotal) if hasattr(self, 'ntotal') else 100
+        if k <= 0:
+            return SearchRangeResult(
+                distances=[],
+                indices=[],
+                lims=mx.zeros((nq + 1,), dtype=mx.int32)
+            )
+        result = self.search(xs, k)
+        lims = [0]
+        flat_d: list[mx.array] = []
+        flat_i: list[mx.array] = []
+        rad = mx.array(radius, dtype=mx.float32)
+        for qi in range(nq):
+            drow = result.distances[qi]
+            irow = result.indices[qi]
+            mask = mx.less_equal(drow, rad)
+            di = drow[mask]
+            ii = irow[mask]
+            if int(di.shape[0]) > 0:
+                flat_d.append(di)
+                flat_i.append(ii.astype(mx.int32))
+            lims.append(lims[-1] + int(di.shape[0]))
+        return SearchRangeResult(
+            distances=flat_d,
+            indices=flat_i,
+            lims=mx.array(lims, dtype=mx.int32)
+        )
 
     def assign(self, xs: List[List[float]], k: int = 1) -> List[int]:
         """Assign vectors to nearest neighbors.
