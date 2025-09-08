@@ -53,7 +53,8 @@ def ensure_dir(path: str):
 def bench_qr(m: int = 4096, k: int = 128) -> Tuple[List[str], List[float]]:
     from metalfaiss.faissmlx.kernels.qr_kernels import project_coeffs
 
-    mx.random.seed(0)
+    from ..utils.rng_utils import new_key
+    _ = new_key(0)  # benchmarks may create their own keys per run
     Q = mx.random.normal(shape=(m, k)).astype(mx.float32)
     v = mx.random.normal(shape=(m,)).astype(mx.float32)
 
@@ -98,7 +99,7 @@ def _simple_quantizer(xb: mx.array, nlist: int):
 
 def bench_ivf(d: int = 64, N: int = 32768, nlist: int = 128, QN: int = 16, nprobe: int = 8, k: int = 10) -> Tuple[List[str], List[float]]:
     from metalfaiss.faissmlx.kernels.ivf_kernels import ivf_list_topk_l2, ivf_list_topk_l2_batch
-    mx.random.seed(0)
+    _ = new_key(0)
     xb = mx.random.normal(shape=(N, d)).astype(mx.float32)
     C = _simple_quantizer(xb, nlist)
     # Build inverted lists
@@ -167,7 +168,7 @@ def bench_ivf(d: int = 64, N: int = 32768, nlist: int = 128, QN: int = 16, nprob
 # Orthogonality bench
 def bench_orthogonality(m: int = 1024, n: int = 256) -> Tuple[List[str], List[float]]:
     from metalfaiss.faissmlx.orthogonality import orthonormal_columns, orthogonalize_blocked, orthogonal
-    mx.random.seed(0)
+    _ = new_key(0)
     X = mx.random.normal(shape=(m, n)).astype(mx.float32)
     labels = ["orthonormal_columns", "orthogonalize_blocked", "orthogonal_init"]
     t_cols = median_time(lambda: orthonormal_columns(X))

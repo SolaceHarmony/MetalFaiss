@@ -167,14 +167,19 @@ def check_numpy_usage(file_path: str, numpy_aliases: List[str]) -> Tuple[bool, L
         content = f.read()
     
     numpy_usages = []
+    numpy_random = []
     
     for alias in numpy_aliases:
         pattern = r'\b' + re.escape(alias) + r'\.\w+'
         matches = re.findall(pattern, content)
         if matches:
             numpy_usages.extend(matches)
+        # Detect numpy.random.* usage and provide MLX guidance
+        rx = r'\b' + re.escape(alias) + r'\.random\.(seed|rand|randn|normal|uniform|randint)\b'
+        for m in re.finditer(rx, content):
+            numpy_random.append((m.group(0), m.start()))
     
-    return bool(numpy_usages), numpy_usages
+    return bool(numpy_usages), numpy_usages, numpy_random
 
 def check_gpu_enforcement(file_path: str) -> Tuple[bool, List[str]]:
     """Check if the file properly enforces GPU usage."""
@@ -649,8 +654,9 @@ def analyze_file(file_path: str) -> Dict:
     # If NumPy is imported, check for usage
     has_numpy_usage = False
     numpy_usages = []
+    numpy_random = []
     if has_numpy_import:
-        has_numpy_usage, numpy_usages = check_numpy_usage(file_path, numpy_imports)
+        has_numpy_usage, numpy_usages, numpy_random = check_numpy_usage(file_path, numpy_imports)
     
     # Check for GPU enforcement issues
     gpu_enforced, gpu_issues = check_gpu_enforcement(file_path)
@@ -678,6 +684,7 @@ def analyze_file(file_path: str) -> Dict:
         "has_numpy": has_numpy,
         "imports": all_imports,
         "usages": all_usages,
+        "numpy_random": numpy_random,
         "precision_casts": precision_casts,
         "tensor_conversions": tensor_conversions,
         "python_operators": python_operators,
@@ -815,6 +822,11 @@ def print_results(results: List[Dict], verbose: bool = False, show_all: bool = T
                 print(f"\n{result['file']}:")
                 print(f"  Imports: {', '.join(result['imports'])}")
                 print(f"  Usages: {', '.join(result['usages'])}")
+                if result.get("numpy_random"):
+                    print("  numpy.random usage detected:")
+                    for name, _pos in result["numpy_random"]:
+                        print(f"    {name}    -> Prefer MLX keys: k=mx.random.key(123); x=mx.random.normal(shape=..., key=k)")
+                        print("       Split keys for multiple draws: k1,k2=mx.random.split(k,num=2)")
         
         if (show_all or show_operators) and files_with_python_operators:
             print("\nFiles with Python operators on MLX arrays:")

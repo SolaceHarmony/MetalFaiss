@@ -6,12 +6,12 @@ GPUs while maintaining accuracy and performance.
 """
 
 import unittest
-import numpy as np
 import mlx.core as mx
 from typing import List, Tuple
 import time
 
 from ..faissmlx.ops import array
+from ..utils.rng_utils import new_key
 from ..faissmlx.gpu_ops import GpuResources
 from ..index.flat_index import FlatIndex
 from ..index.ivf_flat_index import IVFFlatIndex
@@ -22,15 +22,15 @@ from ..index.binary_ivf_index import BinaryIVFIndex
 
 def make_data(num: int, d: int, seed: int = 42) -> mx.array:
     """Generate test data."""
-    np.random.seed(seed)
-    return array(np.random.rand(num, d).astype('float32'))
+    k = new_key(seed)
+    return mx.random.uniform(shape=(num, d), key=k).astype(mx.float32)
 
 def make_binary_data(num: int, d: int, seed: int = 42) -> mx.array:
     """Generate binary test data."""
-    np.random.seed(seed)
-    return array(
-        np.random.randint(0, 2, (num, d)).astype('uint8')
-    )
+    k = new_key(seed)
+    # Draw uniform [0,1) then threshold at 0.5 to get bits
+    u = mx.random.uniform(shape=(num, d), key=k)
+    return (u >= mx.array(0.5, dtype=u.dtype)).astype(mx.uint8)
 
 class TestShardedFlat(unittest.TestCase):
     """Test sharded flat index."""
@@ -61,8 +61,8 @@ class TestShardedFlat(unittest.TestCase):
         d_gpu, i_gpu = index_gpu.search(self.xq, self.k)
         
         # Results should match
-        np.testing.assert_array_equal(i_gpu, i_ref)
-        np.testing.assert_allclose(d_gpu, d_ref, rtol=1e-5)
+        self.assertTrue(bool(mx.all(mx.equal(i_gpu, i_ref)).item()))
+        self.assertTrue(bool(mx.allclose(d_gpu, d_ref, rtol=1e-5, atol=1e-7).item()))
         
         # Should not be able to add to sharded index
         with self.assertRaises(RuntimeError):
@@ -175,8 +175,8 @@ class TestShardedBinary(unittest.TestCase):
         d_gpu, i_gpu = index_gpu.search(self.xq, self.k)
         
         # Results should match exactly
-        np.testing.assert_array_equal(i_gpu, i_ref)
-        np.testing.assert_array_equal(d_gpu, d_ref)
+        self.assertTrue(bool(mx.all(mx.equal(i_gpu, i_ref)).item()))
+        self.assertTrue(bool(mx.all(mx.equal(d_gpu, d_ref)).item()))
         
     def test_sharded_binary_ivf(self):
         """Test sharded binary IVF index."""
