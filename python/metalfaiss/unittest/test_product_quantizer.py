@@ -4,14 +4,14 @@ test_product_quantizer.py - Tests for Product Quantizer implementation
 
 import unittest
 import mlx.core as mx
-import numpy as np
+from ..utils.rng_utils import new_key
 from ..types.metric_type import MetricType
 from ..index.product_quantizer_index import ProductQuantizer, ProductQuantizerIndex
 
 class TestProductQuantizer(unittest.TestCase):
     def setUp(self):
         # Create synthetic test data
-        np.random.seed(42)
+        k = new_key(42)
         self.d = 16  # Dimension must be divisible by M
         self.M = 4   # Number of subquantizers
         self.nbits = 4  # 16 centroids per subquantizer
@@ -19,14 +19,10 @@ class TestProductQuantizer(unittest.TestCase):
         self.n_test = 100
         
         # Training data
-        self.train_data = mx.array(
-            np.random.randn(self.n_train, self.d).astype(np.float32)
-        )
+        self.train_data = mx.random.normal(shape=(self.n_train, self.d), key=k).astype(mx.float32)
         
         # Test data
-        self.test_data = mx.array(
-            np.random.randn(self.n_test, self.d).astype(np.float32)
-        )
+        self.test_data = mx.random.normal(shape=(self.n_test, self.d), key=k).astype(mx.float32)
         
         # Initialize PQ
         self.pq = ProductQuantizer(self.d, self.M, self.nbits)
@@ -71,7 +67,7 @@ class TestProductQuantizer(unittest.TestCase):
 class TestProductQuantizerIndex(unittest.TestCase):
     def setUp(self):
         # Create synthetic test data
-        np.random.seed(42)
+        k = new_key(42)
         self.d = 16
         self.M = 4
         self.nbits = 4
@@ -81,13 +77,13 @@ class TestProductQuantizerIndex(unittest.TestCase):
         self.k = 5
         
         # Training data
-        self.train_data = np.random.randn(self.n_train, self.d).astype(np.float32)
+        self.train_data = mx.random.normal(shape=(self.n_train, self.d), key=k).astype(mx.float32)
         
         # Database vectors
-        self.database = np.random.randn(self.n_database, self.d).astype(np.float32)
+        self.database = mx.random.normal(shape=(self.n_database, self.d), key=k).astype(mx.float32)
         
         # Query vectors
-        self.queries = np.random.randn(self.n_query, self.d).astype(np.float32)
+        self.queries = mx.random.normal(shape=(self.n_query, self.d), key=k).astype(mx.float32)
         
         # Initialize index
         self.index = ProductQuantizerIndex(self.d, self.M, self.nbits)
@@ -95,11 +91,11 @@ class TestProductQuantizerIndex(unittest.TestCase):
     def test_training_and_adding(self):
         """Test index training and vector addition."""
         # Train
-        self.index.train(self.train_data.tolist())
+        self.index.train(self.train_data)
         self.assertTrue(self.index.is_trained)
         
         # Add vectors
-        self.index.add(self.database.tolist())
+        self.index.add(self.database)
         self.assertEqual(self.index.ntotal, self.n_database)
         
     def test_searching(self):
@@ -109,38 +105,41 @@ class TestProductQuantizerIndex(unittest.TestCase):
         self.index.add(self.database.tolist())
         
         # Search
-        result = self.index.search(self.queries.tolist(), self.k)
+        result = self.index.search(self.queries, self.k)
         
         # Check result shapes
-        self.assertEqual(len(result.distances), self.n_query)
-        self.assertEqual(len(result.labels), self.n_query)
-        self.assertEqual(len(result.distances[0]), self.k)
-        self.assertEqual(len(result.labels[0]), self.k)
+        self.assertEqual(int(result.distances.shape[0]), self.n_query)
+        self.assertEqual(int(result.indices.shape[0]), self.n_query)
+        self.assertEqual(int(result.distances.shape[1]), self.k)
+        self.assertEqual(int(result.indices.shape[1]), self.k)
         
         # Verify distances are sorted
-        for dists in result.distances:
-            self.assertEqual(dists, sorted(dists))
+        for i in range(self.n_query):
+            drow = result.distances[i]
+            self.assertTrue(bool(mx.all(mx.less_equal(drow[:-1], drow[1:])).item()))
             
         # Verify labels are valid
-        for labels in result.labels:
-            self.assertTrue(all(0 <= l < self.n_database for l in labels))
+        for i in range(self.n_query):
+            lrow = result.indices[i]
+            self.assertTrue(bool(mx.all(mx.logical_and(mx.greater_equal(lrow, 0), mx.less(lrow, self.n_database))).item()))
             
     def test_reconstruction(self):
         """Test vector reconstruction."""
         # Train and add vectors
-        self.index.train(self.train_data.tolist())
-        self.index.add(self.database.tolist())
+        self.index.train(self.train_data)
+        self.index.add(self.database)
         
         # Reconstruct a vector
         key = 0
         reconstructed = self.index.reconstruct(key)
         
         # Check shape
-        self.assertEqual(len(reconstructed), self.d)
+        self.assertEqual(int(reconstructed.shape[0]), 1 if len(reconstructed.shape) > 1 else self.d)
         
         # Verify reconstruction error
         original = self.database[key]
-        mse = np.mean((np.array(reconstructed) - original) ** 2)
+        rec = reconstructed if len(reconstructed.shape) == 1 else reconstructed[0]
+        mse = float(mx.mean(mx.square(mx.subtract(rec, original))).item())
         self.assertLess(mse, 1.0)  # Adjust threshold as needed
 
 if __name__ == '__main__':

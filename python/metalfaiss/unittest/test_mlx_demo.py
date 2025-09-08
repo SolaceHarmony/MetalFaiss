@@ -9,7 +9,6 @@ These tests demonstrate common usage patterns and serve as examples for:
 """
 
 import unittest
-import numpy as np
 import mlx.core as mx
 from typing import List, Tuple
 import time
@@ -22,17 +21,18 @@ from ..index.product_quantizer_index import ProductQuantizerIndex
 from ..index.binary_flat_index import BinaryFlatIndex
 from ..index.binary_ivf_index import BinaryIVFIndex
 
+from ..utils.rng_utils import new_key
+
 def make_data(num: int, d: int, seed: int = 42) -> mx.array:
-    """Generate test data."""
-    np.random.seed(seed)
-    return array(np.random.rand(num, d).astype('float32'))
+    """Generate test data using MLX RNG keys."""
+    k = new_key(seed)
+    return mx.random.uniform(shape=(num, d), key=k).astype(mx.float32)
 
 def make_binary_data(num: int, d: int, seed: int = 42) -> mx.array:
     """Generate binary test data."""
-    np.random.seed(seed)
-    return array(
-        np.random.randint(0, 2, (num, d)).astype('uint8')
-    )
+    k = new_key(seed)
+    u = mx.random.uniform(shape=(num, d), key=k)
+    return (u >= mx.array(0.5, dtype=u.dtype)).astype(mx.uint8)
 
 class TestBasicUsage(unittest.TestCase):
     """Demonstrate basic index usage."""
@@ -111,7 +111,7 @@ class TestGPUUsage(unittest.TestCase):
         print(f"GPU search time: {t1-t0:.3f}s")
         
         # Results should match
-        np.testing.assert_array_equal(I_cpu, I_gpu)
+        self.assertTrue(bool(mx.all(mx.equal(I_cpu, I_gpu)).item()))
 
 class TestMultiGPUUsage(unittest.TestCase):
     """Demonstrate multi-GPU usage."""
@@ -165,7 +165,7 @@ class TestMultiGPUUsage(unittest.TestCase):
         print(f"Multi-GPU search time: {t1-t0:.3f}s")
         
         # Results should be very close
-        match_ratio = (I_gpu == I_cpu).sum() / I_cpu.size
+        match_ratio = float(mx.sum(mx.equal(I_gpu, I_cpu)).item()) / float(I_cpu.size)
         print(f"Result match ratio: {match_ratio:.3f}")
 
 class TestBinaryUsage(unittest.TestCase):
@@ -210,8 +210,8 @@ class TestBinaryUsage(unittest.TestCase):
         print(f"GPU search time: {t1-t0:.3f}s")
         
         # Results should match exactly
-        np.testing.assert_array_equal(I_cpu, I_gpu)
-        np.testing.assert_array_equal(D_cpu, D_gpu)
+        self.assertTrue(bool(mx.all(mx.equal(I_cpu, I_gpu)).item()))
+        self.assertTrue(bool(mx.all(mx.equal(D_cpu, D_gpu)).item()))
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

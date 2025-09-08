@@ -71,11 +71,14 @@ class _SimpleQuantizer:
         return d2, idx
 
 
+from ..utils.rng_utils import new_key, split2
+
 def _build_ivf_inmemory(d: int, nlist: int, N: int, seed: int = 0):
-    mx.random.seed(seed)
-    xb = mx.random.normal(shape=(N, d)).astype(mx.float32)
+    base = new_key(seed)
+    k_xb, k_train = split2(base)
+    xb = mx.random.normal(shape=(N, d), key=k_xb).astype(mx.float32)
     q = _SimpleQuantizer(d, nlist)
-    train = mx.random.normal(shape=(min(8*nlist, max(256, N//2)), d)).astype(mx.float32)
+    train = mx.random.normal(shape=(min(8*nlist, max(256, N//2)), d), key=k_train).astype(mx.float32)
     q.train(train)
     # build inverted lists
     d2 = mx.sum((xb[:, None, :] - q.centroids[None, :, :])**2, axis=2)

@@ -119,11 +119,12 @@ def power_iter(A: mx.array, Q_init: mx.array, iters: int = 10, tol: float = 1e-1
 
 def test_small(n: int = 32, k: int = 8, iters: int = 5) -> Tuple[float, float]:
     """Run a small test: returns (orthogonality_error, rayleigh_err)."""
-    mx.random.seed(0)
-    A = mx.random.normal(shape=(n, n)).astype(mx.float32)
+    from ...utils.rng_utils import new_key
+    k = new_key(0)
+    A = mx.random.normal(shape=(n, n), key=k).astype(mx.float32)
     # Make symmetric positive semidefinite
     A = mx.matmul(mx.transpose(A), A)
-    Q0 = mx.random.normal(shape=(n, k)).astype(mx.float32)
+    Q0 = mx.random.normal(shape=(n, k), key=k).astype(mx.float32)
     # Orthonormalize Q0 via MLX QR
     from ..qr import pure_mlx_qr
     Q_init, _ = pure_mlx_qr(Q0)

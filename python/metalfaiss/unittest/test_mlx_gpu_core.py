@@ -8,7 +8,6 @@ These tests verify low-level GPU operations like:
 """
 
 import unittest
-import numpy as np
 import mlx.core as mx
 from typing import List, Tuple
 
@@ -29,17 +28,18 @@ from ..faissmlx.gpu_kernels import (
     hamming_distance_kernel
 )
 
+from ..utils.rng_utils import new_key, split2
+
 def make_data(num: int, d: int, seed: int = 42) -> mx.array:
-    """Generate test data."""
-    np.random.seed(seed)
-    return array(np.random.rand(num, d).astype('float32'))
+    """Generate test data using MLX RNG keys."""
+    k = new_key(seed)
+    return mx.random.uniform(shape=(num, d), key=k).astype(mx.float32)
 
 def make_binary_data(num: int, d: int, seed: int = 42) -> mx.array:
-    """Generate binary test data."""
-    np.random.seed(seed)
-    return array(
-        np.random.randint(0, 2, (num, d)).astype('uint8')
-    )
+    """Generate binary test data (uint8) using MLX RNG keys."""
+    k = new_key(seed)
+    u = mx.random.uniform(shape=(num, d), key=k)
+    return (u >= mx.array(0.5, dtype=u.dtype)).astype(mx.uint8)
 
 class TestGpuSelect(unittest.TestCase):
     """Test GPU selection operations."""
@@ -57,11 +57,12 @@ class TestGpuSelect(unittest.TestCase):
     def test_topk(self):
         """Test top-k selection."""
         # Create random distances
-        distances = array(np.random.rand(self.n).astype('float32'))
+        k = new_key(123)
+        distances = mx.random.uniform(shape=(self.n,), key=k).astype(mx.float32)
         
         # Get top-k on CPU
-        cpu_indices = np.argsort(distances.numpy())[:self.k]
-        cpu_values = distances.numpy()[cpu_indices]
+        cpu_indices = mx.argsort(distances)[: self.k]
+        cpu_values = mx.take(distances, cpu_indices)
         
         # Get top-k on GPU
         gpu_distances = to_gpu(distances)
@@ -72,27 +73,19 @@ class TestGpuSelect(unittest.TestCase):
         )
         
         # Results should match
-        np.testing.assert_array_equal(
-            from_gpu(gpu_indices),
-            cpu_indices
-        )
-        np.testing.assert_allclose(
-            from_gpu(gpu_values),
-            cpu_values,
-            rtol=1e-5
-        )
+        self.assertTrue(bool(mx.all(mx.equal(from_gpu(gpu_indices), cpu_indices)).item()))
+        self.assertTrue(bool(mx.allclose(from_gpu(gpu_values), cpu_values, rtol=1e-5, atol=1e-7).item()))
         
     def test_partition(self):
         """Test array partitioning."""
         # Create random values
-        values = array(np.random.rand(self.n).astype('float32'))
+        k = new_key(321)
+        values = mx.random.uniform(shape=(self.n,), key=k).astype(mx.float32)
         k = self.n // 2
         
-        # Partition on CPU
-        cpu_values = values.numpy()
-        pivot = np.partition(cpu_values, k)[k]
-        cpu_left = cpu_values[cpu_values <= pivot]
-        cpu_right = cpu_values[cpu_values > pivot]
+        # CPU reference via argsort gather
+        order = mx.argsort(values)
+        pivot = values[order[k]]
         
         # Partition on GPU
         gpu_values = to_gpu(values)
@@ -100,8 +93,10 @@ class TestGpuSelect(unittest.TestCase):
         gpu_values = from_gpu(gpu_values)
         
         # Check partition properties
-        self.assertLessEqual(len(gpu_values[gpu_values <= gpu_pivot]), k)
-        self.assertGreaterEqual(len(gpu_values[gpu_values > gpu_pivot]), self.n - k)
+        left_count = int(mx.sum(mx.less_equal(gpu_values, mx.array(float(gpu_pivot), dtype=gpu_values.dtype))).item())
+        right_count = int(mx.sum(mx.greater(gpu_values, mx.array(float(gpu_pivot), dtype=gpu_values.dtype))).item())
+        self.assertLessEqual(left_count, k)
+        self.assertGreaterEqual(right_count, self.n - k)
 
 class TestGpuDistance(unittest.TestCase):
     """Test GPU distance computations."""
@@ -125,12 +120,8 @@ class TestGpuDistance(unittest.TestCase):
     def test_l2_distance(self):
         """Test L2 distance computation."""
         # CPU implementation
-        cpu_distances = np.zeros((self.nq, self.nb), dtype=np.float32)
-        for i in range(self.nq):
-            for j in range(self.nb):
-                cpu_distances[i, j] = np.sum(
-                    (self.xq[i].numpy() - self.xb[j].numpy()) ** 2
-                )
+        diffs = self.xq[:, None, :] - self.xb[None, :, :]
+        cpu_distances = mx.sum(diffs * diffs, axis=2)
                 
         # GPU implementations
         gpu_distances = gpu_l2_distances(self.xq, self.xb)
@@ -141,28 +132,17 @@ class TestGpuDistance(unittest.TestCase):
         )
         
         # All should match
-        np.testing.assert_allclose(
-            gpu_distances.numpy(),
-            cpu_distances,
-            rtol=1e-5
-        )
-        np.testing.assert_allclose(
-            kernel_distances.numpy(),
-            cpu_distances,
-            rtol=1e-5
-        )
+        self.assertTrue(bool(mx.allclose(gpu_distances, cpu_distances, rtol=1e-5, atol=1e-7).item()))
+        self.assertTrue(bool(mx.allclose(kernel_distances, cpu_distances, rtol=1e-5, atol=1e-7).item()))
         
     def test_cosine_distance(self):
         """Test cosine distance computation."""
         # CPU implementation
-        cpu_distances = np.zeros((self.nq, self.nb), dtype=np.float32)
-        for i in range(self.nq):
-            q = self.xq[i].numpy()
-            q_norm = np.sqrt(np.sum(q * q))
-            for j in range(self.nb):
-                b = self.xb[j].numpy()
-                b_norm = np.sqrt(np.sum(b * b))
-                cpu_distances[i, j] = 1 - np.sum(q * b) / (q_norm * b_norm)
+        q_norms = mx.sqrt(mx.sum(self.xq * self.xq, axis=1, keepdims=True))
+        b_norms = mx.sqrt(mx.sum(self.xb * self.xb, axis=1, keepdims=True))
+        dots = mx.matmul(self.xq, mx.transpose(self.xb))
+        norms = mx.matmul(q_norms, mx.transpose(b_norms))
+        cpu_distances = mx.subtract(mx.ones_like(dots), mx.divide(dots, norms))
                 
         # GPU implementations
         gpu_distances = gpu_cosine_distances(self.xq, self.xb)
@@ -173,26 +153,13 @@ class TestGpuDistance(unittest.TestCase):
         )
         
         # All should match
-        np.testing.assert_allclose(
-            gpu_distances.numpy(),
-            cpu_distances,
-            rtol=1e-5
-        )
-        np.testing.assert_allclose(
-            kernel_distances.numpy(),
-            cpu_distances,
-            rtol=1e-5
-        )
+        self.assertTrue(bool(mx.allclose(gpu_distances, cpu_distances, rtol=1e-5, atol=1e-7).item()))
+        self.assertTrue(bool(mx.allclose(kernel_distances, cpu_distances, rtol=1e-5, atol=1e-7).item()))
         
     def test_hamming_distance(self):
         """Test Hamming distance computation."""
         # CPU implementation
-        cpu_distances = np.zeros((self.nq, self.nb), dtype=np.uint32)
-        for i in range(self.nq):
-            for j in range(self.nb):
-                cpu_distances[i, j] = np.sum(
-                    self.xq_bin[i].numpy() != self.xb_bin[j].numpy()
-                )
+        cpu_distances = mx.sum(mx.not_equal(self.xq_bin[:, None, :], self.xb_bin[None, :, :]).astype(mx.uint32), axis=2)
                 
         # GPU implementations
         gpu_distances = gpu_hamming_distances(self.xq_bin, self.xb_bin)
@@ -203,14 +170,8 @@ class TestGpuDistance(unittest.TestCase):
         )
         
         # All should match
-        np.testing.assert_array_equal(
-            gpu_distances.numpy(),
-            cpu_distances
-        )
-        np.testing.assert_array_equal(
-            kernel_distances.numpy(),
-            cpu_distances
-        )
+        self.assertTrue(bool(mx.all(mx.equal(gpu_distances, cpu_distances)).item()))
+        self.assertTrue(bool(mx.all(mx.equal(kernel_distances, cpu_distances)).item()))
 
 class TestGpuVectorOps(unittest.TestCase):
     """Test GPU vector operations."""
@@ -227,50 +188,34 @@ class TestGpuVectorOps(unittest.TestCase):
     def test_reduction(self):
         """Test reduction operations."""
         # Sum reduction
-        cpu_sum = np.sum(self.x.numpy())
+        cpu_sum = float(mx.sum(self.x).item())
         gpu_sum = self.resources.sum(to_gpu(self.x))
-        np.testing.assert_allclose(
-            float(gpu_sum),
-            cpu_sum,
-            rtol=1e-5
-        )
+        self.assertAlmostEqual(float(gpu_sum), cpu_sum, places=5)
         
         # Mean reduction
-        cpu_mean = np.mean(self.x.numpy())
+        cpu_mean = float(mx.mean(self.x).item())
         gpu_mean = self.resources.mean(to_gpu(self.x))
-        np.testing.assert_allclose(
-            float(gpu_mean),
-            cpu_mean,
-            rtol=1e-5
-        )
+        self.assertAlmostEqual(float(gpu_mean), cpu_mean, places=5)
         
     def test_elementwise(self):
         """Test elementwise operations."""
         y = make_data(self.n, self.d)
         
         # Addition
-        cpu_add = self.x.numpy() + y.numpy()
+        cpu_add = mx.add(self.x, y)
         gpu_add = self.resources.add(
             to_gpu(self.x),
             to_gpu(y)
         )
-        np.testing.assert_allclose(
-            from_gpu(gpu_add),
-            cpu_add,
-            rtol=1e-5
-        )
+        self.assertTrue(bool(mx.allclose(from_gpu(gpu_add), cpu_add, rtol=1e-5, atol=1e-7).item()))
         
         # Multiplication
-        cpu_mul = self.x.numpy() * y.numpy()
+        cpu_mul = mx.multiply(self.x, y)
         gpu_mul = self.resources.multiply(
             to_gpu(self.x),
             to_gpu(y)
         )
-        np.testing.assert_allclose(
-            from_gpu(gpu_mul),
-            cpu_mul,
-            rtol=1e-5
-        )
+        self.assertTrue(bool(mx.allclose(from_gpu(gpu_mul), cpu_mul, rtol=1e-5, atol=1e-7).item()))
 
 if __name__ == '__main__':
     unittest.main()
