@@ -6,15 +6,16 @@ its graph construction and search behavior in Hamming space.
 """
 
 import unittest
-import numpy as np
 import mlx.core as mx
 from typing import List, Tuple
 from ..index.binary_hnsw_index import BinaryHNSWIndex
+from ..utils.rng_utils import new_key, split2
 
 def generate_binary_vectors(n: int, d: int, seed: int = 42) -> List[List[int]]:
-    """Generate random binary vectors."""
-    np.random.seed(seed)
-    return np.random.randint(0, 2, (n, d)).tolist()
+    """Generate random binary vectors (MLX)."""
+    k = new_key(seed)
+    u = mx.random.uniform(shape=(n, d), key=k)
+    return mx.less(u, mx.array(0.5)).astype(mx.uint8).tolist()
 
 def hamming_distance(x: List[int], y: List[int]) -> int:
     """Compute Hamming distance between binary vectors."""
@@ -30,11 +31,12 @@ class TestBinaryHNSWIndex(unittest.TestCase):
         
         # Create vectors with some structure
         # Half the vectors are closer to 0s, half closer to 1s
-        np.random.seed(42)
         n_half = self.n // 2
-        zeros = np.random.binomial(1, 0.2, (n_half, self.d))  # Mostly zeros
-        ones = np.random.binomial(1, 0.8, (n_half, self.d))   # Mostly ones
-        self.vectors = np.vstack([zeros, ones]).tolist()
+        k = new_key(42)
+        k0, k1 = split2(k)
+        zeros = mx.less(mx.random.uniform(shape=(n_half, self.d), key=k0), mx.array(0.2)).astype(mx.uint8)
+        ones = mx.less(mx.random.uniform(shape=(n_half, self.d), key=k1), mx.array(0.8)).astype(mx.uint8)
+        self.vectors = mx.concatenate([zeros, ones], axis=0).tolist()
         
         # Create index with default parameters
         self.index = BinaryHNSWIndex(self.d)

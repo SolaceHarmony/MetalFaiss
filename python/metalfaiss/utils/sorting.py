@@ -85,3 +85,24 @@ def mlx_topk(
     else:
         top_vals = mx.take(x, top_idx, axis=ax)
     return top_vals, top_idx
+
+# Compile-friendly top-k for common axis=1 use cases.
+try:
+    compile_fn = mx.compile  # type: ignore[attr-defined]
+except Exception:  # pragma: no cover
+    def compile_fn(f):
+        return f
+
+@compile_fn
+def topk_smallest_axis1(x: mx.array, k: int) -> Tuple[mx.array, mx.array]:
+    order = mx.argsort(x, axis=1)
+    idx = order[:, :k]
+    vals = mx.take_along_axis(x, idx, axis=1)
+    return vals, idx
+
+@compile_fn
+def topk_largest_axis1(x: mx.array, k: int) -> Tuple[mx.array, mx.array]:
+    order = mx.argsort(mx.negative(x), axis=1)
+    idx = order[:, :k]
+    vals = mx.take_along_axis(x, idx, axis=1)
+    return vals, idx

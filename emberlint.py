@@ -581,7 +581,7 @@ class UnusedImportVisitor(ast.NodeVisitor):
                 unused.append((name, lineno))
         return unused
 
-def check_ast_for_issues(file_path: str) -> Tuple[bool, List[str], List[str], List[Dict], List[Dict], List[Dict], List[Tuple[str, int]], List[Dict], List[Dict], List[Dict], List[Dict]]:
+def check_ast_for_issues(file_path: str) -> Tuple[bool, List[str], List[str], List[Dict], List[Dict], List[Dict], List[Tuple[str, int]], List[Dict], List[Dict], List[Dict], List[Dict], List[Dict]]:
     """Use AST to check for various issues."""
     with open(file_path, 'r', encoding='utf-8') as f:
         content = f.read()
@@ -618,7 +618,8 @@ def check_ast_for_issues(file_path: str) -> Tuple[bool, List[str], List[str], Li
         visitor.cpu_usage,
         visitor.host_pulls,
         visitor.comparisons,
-        visitor.bitwise_ops
+        visitor.bitwise_ops,
+        visitor.gpu_prefix
     )
 
 def check_compilation(file_path: str) -> Tuple[bool, List[str]]:
@@ -662,7 +663,7 @@ def analyze_file(file_path: str) -> Dict:
     gpu_enforced, gpu_issues = check_gpu_enforcement(file_path)
     
     # Use AST for more accurate detection
-    ast_has_numpy, ast_numpy_imports, ast_numpy_usages, precision_casts, tensor_conversions, python_operators, unused_imports, cpu_usage, host_pulls, comparisons, bitwise_ops = check_ast_for_issues(file_path)
+    ast_has_numpy, ast_numpy_imports, ast_numpy_usages, precision_casts, tensor_conversions, python_operators, unused_imports, cpu_usage, host_pulls, comparisons, bitwise_ops, gpu_prefix = check_ast_for_issues(file_path)
     
     # Combine results
     has_numpy = has_numpy_import or ast_has_numpy
@@ -694,7 +695,8 @@ def analyze_file(file_path: str) -> Dict:
         "cpu_usage": cpu_usage,
         "host_pulls": host_pulls,
         "comparisons": comparisons,
-        "bitwise_ops": bitwise_ops
+        "bitwise_ops": bitwise_ops,
+        "gpu_prefix": gpu_prefix
     }
 
 def analyze_directory(directory: str, exclude_dirs: Optional[List[str]] = None) -> List[Dict]:
@@ -745,6 +747,7 @@ def print_results(results: List[Dict], verbose: bool = False, show_all: bool = T
     files_with_host_pulls = [result for result in results if result.get("host_pulls", [])]
     files_with_comparisons = [result for result in results if result.get("comparisons", [])]
     files_with_bitwise = [result for result in results if result.get("bitwise_ops", [])]
+    files_with_gpu_prefix = [result for result in results if result.get("gpu_prefix", [])]
     
     print(f"Total files analyzed: {len(results)}")
     if len(results) > 0:
@@ -861,6 +864,14 @@ def print_results(results: List[Dict], verbose: bool = False, show_all: bool = T
                 for op in result["bitwise_ops"]:
                     print(f"  {op['type']} at {op['location']}")
                     print(f"    Suggestion: {op['suggestion']}")
+        
+        if show_all and files_with_gpu_prefix:
+            print("\nFiles with 'gpu_' prefix in names (style warning):")
+            for result in files_with_gpu_prefix:
+                print(f"\n{result['file']}:")
+                for item in result["gpu_prefix"]:
+                    print(f"  {item['name']} at {item['location']}")
+                    print(f"    Suggestion: {item['suggestion']}")
         
         if (show_all or show_precision) and files_with_precision_casts:
             print("\nFiles with precision-reducing casts on MLX:")
@@ -1035,6 +1046,7 @@ def to_json(results: List[Dict], include_details: bool = True) -> str:
         'gpu_enforcement_issues': sum(1 for r in results if not r['gpu_enforced']),
         'cpu_usage': sum(1 for r in results if r['cpu_usage']),
         'mlx_issues': sum(1 for r in results if r.get('host_pulls') or r.get('comparisons') or r.get('bitwise_ops')),
+        'gpu_prefix': sum(1 for r in results if r.get('gpu_prefix')),
     }
     return json.dumps(summary, indent=2)
 

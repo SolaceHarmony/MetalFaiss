@@ -9,7 +9,6 @@ These tests verify behavior in edge cases like:
 """
 
 import unittest
-import numpy as np
 import mlx.core as mx
 from typing import List, Tuple
 
@@ -17,17 +16,15 @@ from ..faissmlx.ops import array
 from ..faissmlx.gpu_ops import (
     GpuResources,
     GpuMemoryManager,
-    to_gpu,
-    from_gpu
 )
 from ..index.flat_index import FlatIndex
 from ..index.ivf_flat_index import IVFFlatIndex
 from ..index.product_quantizer_index import ProductQuantizerIndex
 
 def make_data(num: int, d: int, seed: int = 42) -> mx.array:
-    """Generate test data."""
-    np.random.seed(seed)
-    return array(np.random.rand(num, d).astype('float32'))
+    """Generate test data (MLX)."""
+    k = mx.random.key(int(seed))
+    return array(mx.random.uniform(shape=(num, d), key=k).astype(mx.float32))
 
 class TestGpuMemory(unittest.TestCase):
     """Test GPU memory management."""
@@ -127,7 +124,8 @@ class TestCodePacking(unittest.TestCase):
         unpacked = index.pq.unpack_codes(packed)
         
         # Should match original
-        np.testing.assert_array_equal(codes, unpacked)
+        from .mlx_test_utils import assert_array_equal
+        assert_array_equal(codes, unpacked)
         
     def test_pq_partial_packing(self):
         """Test partial PQ code packing."""
@@ -154,7 +152,8 @@ class TestCodePacking(unittest.TestCase):
         unpacked = index.pq.unpack_codes(packed)
         
         # Should match original subset
-        np.testing.assert_array_equal(codes, unpacked)
+        from .mlx_test_utils import assert_array_equal
+        assert_array_equal(codes, unpacked)
 
 class TestResourceManagement(unittest.TestCase):
     """Test GPU resource management."""
@@ -215,33 +214,7 @@ class TestErrorHandling(unittest.TestCase):
         with self.assertRaises(ValueError):
             GpuResources(max_memory=-1)
             
-    def test_resource_exhaustion(self):
-        """Test resource exhaustion handling."""
-        # Create many small indices
-        indices = []
-        try:
-            while True:
-                index = FlatIndex(256).to_gpu(self.resources)
-                indices.append(index)
-        except RuntimeError as e:
-            # Should eventually run out of resources
-            self.assertIn("memory", str(e).lower())
-            
-    def test_invalid_transfers(self):
-        """Test invalid device transfers."""
-        x = array([1, 2, 3])
-        
-        # Invalid device
-        with self.assertRaises(ValueError):
-            to_gpu(x, device=-1)
-            
-        # Invalid array
-        with self.assertRaises(ValueError):
-            to_gpu(None)
-            
-        # Invalid type
-        with self.assertRaises(ValueError):
-            to_gpu([1, 2, 3])  # Not an array
+    # GPU-only design: transfer/resource exhaustion tests removed.
 
 if __name__ == '__main__':
     unittest.main()

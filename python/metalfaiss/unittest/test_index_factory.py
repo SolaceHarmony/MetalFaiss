@@ -8,7 +8,6 @@ Tests for Index Factory System
 
 import unittest
 import mlx.core as mx
-import mlx.core as mx
 
 from metalfaiss import index_factory, get_supported_descriptions, MetricType
 from metalfaiss.index.flat_index import FlatIndex
@@ -28,8 +27,8 @@ class TestIndexFactory(unittest.TestCase):
         self.d = 64
         self.n = 100
         # Create test data
-        self.data = np.random.randn(self.n, self.d).astype(np.float32)
-        self.query = np.random.randn(1, self.d).astype(np.float32)
+        self.data = mx.random.normal(shape=(self.n, self.d)).astype(mx.float32)
+        self.query = mx.random.normal(shape=(1, self.d)).astype(mx.float32)
     
     def test_flat_index(self):
         """Test creating flat index."""

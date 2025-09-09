@@ -10,6 +10,7 @@ from ..distances import (
     pairwise_extra_distances,
     pairwise_jaccard,
 )
+from ..utils.sorting import topk_smallest_axis1
 
 class FlatIndex(BaseIndex):
     """Flat index implementation using MLX.
@@ -89,42 +90,33 @@ class FlatIndex(BaseIndex):
         mt = self.metric_type
         if mt == MetricType.L2:
             distances = pairwise_L2sqr(x, self._vectors)
-            idx = mx.argsort(distances, axis=1)[:, :k]
-            vals = mx.take_along_axis(distances, idx, axis=1)
+            vals, idx = topk_smallest_axis1(distances, k)
         elif mt == MetricType.L1:
             distances = pairwise_L1(x, self._vectors)
-            idx = mx.argsort(distances, axis=1)[:, :k]
-            vals = mx.take_along_axis(distances, idx, axis=1)
+            vals, idx = topk_smallest_axis1(distances, k)
         elif mt == MetricType.Linf:
             distances = pairwise_Linf(x, self._vectors)
-            idx = mx.argsort(distances, axis=1)[:, :k]
-            vals = mx.take_along_axis(distances, idx, axis=1)
+            vals, idx = topk_smallest_axis1(distances, k)
         elif mt == MetricType.Canberra:
             distances = pairwise_extra_distances(x, self._vectors, "Canberra")
-            idx = mx.argsort(distances, axis=1)[:, :k]
-            vals = mx.take_along_axis(distances, idx, axis=1)
+            vals, idx = topk_smallest_axis1(distances, k)
         elif mt == MetricType.BrayCurtis:
             distances = pairwise_extra_distances(x, self._vectors, "BrayCurtis")
-            idx = mx.argsort(distances, axis=1)[:, :k]
-            vals = mx.take_along_axis(distances, idx, axis=1)
+            vals, idx = topk_smallest_axis1(distances, k)
         elif mt == MetricType.JensenShannon:
             distances = pairwise_extra_distances(x, self._vectors, "JensenShannon")
-            idx = mx.argsort(distances, axis=1)[:, :k]
-            vals = mx.take_along_axis(distances, idx, axis=1)
+            vals, idx = topk_smallest_axis1(distances, k)
         elif mt == MetricType.Jaccard:
             distances = pairwise_jaccard(x, self._vectors)
-            idx = mx.argsort(distances, axis=1)[:, :k]
-            vals = mx.take_along_axis(distances, idx, axis=1)
+            vals, idx = topk_smallest_axis1(distances, k)
         elif mt == MetricType.INNER_PRODUCT:
             sims = mx.matmul(x, self._vectors.T)
-            distances = -sims
-            idx = mx.argsort(distances, axis=1)[:, :k]
-            vals = mx.take_along_axis(distances, idx, axis=1)
+            distances = mx.negative(sims)
+            vals, idx = topk_smallest_axis1(distances, k)
         else:
             # Fallback to L2
             distances = pairwise_L2sqr(x, self._vectors)
-            idx = mx.argsort(distances, axis=1)[:, :k]
-            vals = mx.take_along_axis(distances, idx, axis=1)
+            vals, idx = topk_smallest_axis1(distances, k)
 
         return vals, idx
         
