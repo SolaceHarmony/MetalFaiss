@@ -119,8 +119,8 @@ class TestIndexIO(unittest.TestCase):
         k = 4
         D1, I1 = index.search(self.xb[:10], k)
         D2, I2 = index2.search(self.xb[:10], k)
-        np.testing.assert_array_equal(D1, D2)
-        np.testing.assert_array_equal(I1, I2)
+        assert_array_equal(D1, D2)
+        assert_array_equal(I1, I2)
         
     def test_product_quantizer_index(self):
         """Test product quantizer index I/O."""

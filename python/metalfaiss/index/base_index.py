@@ -72,6 +72,10 @@ class BaseIndex:
     def reset(self) -> None:
         """Reset the index."""
         self.ntotal = 0
+    
+    # GPU-only project: keep a no-op `.to_gpu` for compatibility
+    def to_gpu(self, resources=None):  # type: ignore[override]
+        return self
         
     def __len__(self) -> int:
         """Get number of vectors in index."""

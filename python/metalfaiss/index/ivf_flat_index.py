@@ -9,6 +9,8 @@ from .flat_index import FlatIndex
 from ..types.metric_type import MetricType
 from ..utils.search_result import SearchResult
 from ..index.index_error import IndexError
+from ..utils.sorting import topk_smallest_axis1
+from ..distances import pairwise_L2sqr
 import os
 from ..faissmlx.flags import ivf_fused_enabled
 try:
@@ -132,10 +134,15 @@ class IVFFlatIndex(BaseIndex):
             probe_vectors = mx.stack(probe_vectors)
             ids_arr = mx.array(probe_ids, dtype=mx.int32)
 
-            # Production: always use fused IVF top‑k kernel for L2
-            if self.metric_type != MetricType.L2 or ivf_list_topk_l2 is None:
-                raise RuntimeError("IVFFlatIndex: production path expects L2 and fused kernel available")
-            vals, oks = ivf_list_topk_l2(query, probe_vectors, ids_arr, k)
+            # Preferred: fused IVF top‑k kernel for L2
+            if self.metric_type == MetricType.L2 and ivf_list_topk_l2 is not None:
+                vals, oks = ivf_list_topk_l2(query, probe_vectors, ids_arr, k)
+            else:
+                # Fallback: compiled MLX pairwise + top-k (GPU‑only)
+                drow = pairwise_L2sqr(query.reshape((1, -1)), probe_vectors)  # shape (1, m)
+                vrow, irow = topk_smallest_axis1(drow, k)
+                vals = vrow.reshape((-1,))
+                oks = mx.take(ids_arr, irow.reshape((-1,)))
             out_vals.append(vals)
             out_ids.append(oks)
 

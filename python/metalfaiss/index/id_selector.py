@@ -8,8 +8,10 @@ Original: faiss/impl/IDSelector.h
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Set, Optional
+from typing import List, Optional, Sequence, Tuple, Union
 from dataclasses import dataclass
+from bisect import bisect_left, bisect_right
+import mlx.core as mx
 
 class IDSelector(ABC):
     """Base class for ID selection."""
@@ -41,7 +43,7 @@ class IDSelectorRange(IDSelector):
     def find_sorted_ids_bounds(
         self,
         list_size: int,
-        ids: np.ndarray
+        ids: Sequence[int]
     ) -> tuple[int, int]:
         """Find bounds of valid IDs in sorted list.
         
@@ -54,11 +56,11 @@ class IDSelectorRange(IDSelector):
         """
         if not self.assume_sorted:
             raise ValueError("IDs must be sorted when assume_sorted=True")
-            
-        # Binary search for bounds
-        jmin = np.searchsorted(ids[:list_size], self.imin, side='left')
-        jmax = np.searchsorted(ids[:list_size], self.imax, side='right')
-        
+
+        # Use Python's bisect on the provided sequence
+        sl = ids[:list_size]
+        jmin = bisect_left(sl, self.imin)
+        jmax = bisect_right(sl, self.imax - 1)
         return int(jmin), int(jmax)
 
 class IDSelectorArray(IDSelector):
@@ -86,48 +88,78 @@ class IDSelectorBatch(IDSelector):
             ids: List of IDs to select
         """
         self.id_set = set(ids)
-        
-        # Initialize Bloom filter
+
+        # Initialize Bloom filter (bytes), then normalize to MLX
         # Use 8 bits per ID for good false positive rate
         self.nbits = max(64, 8 * len(ids))
         self.mask = (1 << self.nbits) - 1
-        self.bloom = np.zeros(self.nbits // 8, dtype=np.uint8)
-        
-        # Add IDs to Bloom filter
+        _bloom = bytearray(self.nbits // 8)
+
+        # Add IDs to Bloom filter (Python control plane)
         for id in ids:
             h = id & self.mask  # Simple hash function
-            self.bloom[h >> 3] |= 1 << (h & 7)
+            _bloom[h >> 3] |= 1 << (h & 7)
+        # Store as MLX array for GPU-friendly checks
+        self.bloom = mx.array(list(_bloom), dtype=mx.uint8)
             
     def is_member(self, id: int) -> bool:
         """Check if ID is selected using Bloom filter."""
         # Check Bloom filter first
         h = id & self.mask
-        if not (self.bloom[h >> 3] & (1 << (h & 7))):
+        byte = self.bloom[h >> 3]
+        mask = mx.left_shift(mx.array(1, dtype=mx.uint8), mx.array(h & 7, dtype=mx.uint8))
+        if not bool(mx.not_equal(mx.bitwise_and(byte, mask), mx.array(0, dtype=mx.uint8)).item()):  # boundary-ok
             return False  # Definitely not in set
-            
+
         # Possible match, check actual set
         return id in self.id_set
 
 class IDSelectorBitmap(IDSelector):
     """Select IDs using bitmap."""
-    
-    def __init__(self, n: int, bitmap: np.ndarray):
+
+    def __init__(self, n: int, bitmap: Union[Sequence[int], bytes, bytearray, mx.array]):
         """Initialize with bitmap.
-        
+
         Args:
             n: Number of IDs
-            bitmap: Bitmap array of ceil(n/8) bytes
+            bitmap: Bytes-like bitmap of ceil(n/8) bytes, sequence of ints, or `mx.array` of dtype uint8
         """
         self.n = n
-        self.bitmap = bitmap
-        
+        # Normalize to MLX array (uint8) for GPU-friendly bitwise ops
+        if isinstance(bitmap, mx.array):
+            self.bitmap = bitmap.astype(mx.uint8)
+        elif isinstance(bitmap, (bytes, bytearray)):
+            self.bitmap = mx.array(list(bitmap), dtype=mx.uint8)
+        else:
+            self.bitmap = mx.array([int(b) & 0xFF for b in bitmap], dtype=mx.uint8)
+
     def is_member(self, id: int) -> bool:
         """Check if ID is selected in bitmap."""
         if not (0 <= id < self.n):
             return False
         byte_idx = id >> 3  # Divide by 8
         bit_idx = id & 7    # Modulo 8
-        return bool(self.bitmap[byte_idx] & (1 << bit_idx))
+        byte = self.bitmap[byte_idx]
+        mask = mx.left_shift(mx.array(1, dtype=mx.uint8), mx.array(bit_idx, dtype=mx.uint8))
+        return bool(mx.not_equal(mx.bitwise_and(byte, mask), mx.array(0, dtype=mx.uint8)).item())  # boundary-ok
+
+    def is_member_batch(self, ids: mx.array) -> mx.array:
+        """Vectorized membership check for a batch of IDs.
+
+        Args:
+            ids: MLX array of integer IDs
+
+        Returns:
+            MLX boolean array indicating membership for each ID
+        """
+        ids = ids.astype(mx.int32)
+        valid = mx.logical_and(mx.greater_equal(ids, mx.array(0, dtype=mx.int32)), mx.less(ids, mx.array(self.n, dtype=mx.int32)))
+        byte_idx = mx.right_shift(ids, mx.array(3, dtype=mx.int32)).astype(mx.int32)
+        bit_idx = mx.bitwise_and(ids, mx.array(7, dtype=mx.int32)).astype(mx.uint8)
+        bytes_ = mx.take(self.bitmap, byte_idx)
+        mask = mx.left_shift(mx.array(1, dtype=mx.uint8), bit_idx)
+        bits = mx.not_equal(mx.bitwise_and(bytes_, mask), mx.array(0, dtype=mx.uint8))
+        return mx.logical_and(valid, bits)
 
 class IDSelectorAll(IDSelector):
     """Select all IDs (for benchmarking)."""

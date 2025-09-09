@@ -73,6 +73,8 @@ Pitfalls
 - Python control flow that depends on array values is evaluated during tracing; avoid it or move the branch into MLX with `mx.where`/masks.
 - Recompiles on any of: dtype change, rank change, shape change (unless shapeless), argument count change.
 - Don’t create/destroy compiled lambdas in inner loops; compile once and reuse.
+ - Prefer long‑lived compiled functions: define them at module import time. Creating compiled callables in frequently executed code paths causes graph cache churn and degrades performance.
+ - Keep shapes steady across calls (e.g., fixed `k` and axis patterns for top‑k) to maximize cache hits; if `k` varies widely, consider batching or normalizing to a small set of common values.
 
 Integration Points in Code
 - See `python/metalfaiss/faissmlx/svd.py` for compiled MLX and kernel wrapper paths.
@@ -80,4 +82,3 @@ Integration Points in Code
 
 References
 - MLX compile user guide and API docs (local curated docs and upstream MLX site).
-

@@ -228,7 +228,7 @@ class TestIndexIDs(unittest.TestCase):
         
         # Create test vectors
         self.xb = make_data(self.nb, self.d)
-        self.ids = np.arange(self.nb, dtype=np.int64)
+        self.ids = mx.arange(self.nb, dtype=mx.int64)
         
         # Add large offset to test 64-bit handling
         self.ids_64bit = self.ids + (1 << 32)
@@ -244,10 +244,7 @@ class TestIndexIDs(unittest.TestCase):
         d, i = index.search(self.xb[:10], 1)
         
         # Should find exact matches with correct IDs
-        np.testing.assert_array_equal(
-            i[:, 0],
-            self.ids_64bit[:10]
-        )
+        assert_array_equal(i[:, 0].astype(mx.int64), self.ids_64bit[:10])
         
     def test_ivf_ids(self):
         """Test IVF index ID handling."""
@@ -261,10 +258,7 @@ class TestIndexIDs(unittest.TestCase):
         d, i = index.search(self.xb[:10], 1)
         
         # Should find exact matches with correct IDs
-        np.testing.assert_array_equal(
-            i[:, 0],
-            self.ids_64bit[:10]
-        )
+        assert_array_equal(i[:, 0].astype(mx.int64), self.ids_64bit[:10])
 
 if __name__ == '__main__':
     unittest.main()

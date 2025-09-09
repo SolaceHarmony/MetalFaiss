@@ -44,7 +44,7 @@ class TestIDSelector(unittest.TestCase):
         
         # Sorted ID bounds
         selector = IDSelectorRange(5, 10, assume_sorted=True)
-        ids = np.array([1, 3, 5, 6, 8, 9, 11, 12])
+        ids = [1, 3, 5, 6, 8, 9, 11, 12]
         jmin, jmax = selector.find_sorted_ids_bounds(len(ids), ids)
         self.assertEqual(jmin, 2)  # Index of 5
         self.assertEqual(jmax, 6)  # Index after 9
@@ -97,7 +97,7 @@ class TestIDSelector(unittest.TestCase):
         """Test bitmap-based selection."""
         # Create bitmap selecting every other ID
         n = 16
-        bitmap = np.zeros(2, dtype=np.uint8)  # 16 bits
+        bitmap = bytearray(2)  # 16 bits
         for i in range(0, n, 2):
             bitmap[i >> 3] |= 1 << (i & 7)
             

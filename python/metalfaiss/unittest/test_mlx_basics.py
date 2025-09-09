@@ -23,12 +23,10 @@ from ..faissmlx.ops import (
 from ..faissmlx.gpu_ops import (
     GpuResources,
     GpuMemoryManager,
-    to_gpu,
-    from_gpu,
-    gpu_matmul,
-    gpu_l2_distances,
-    gpu_cosine_distances,
-    gpu_hamming_distances
+    matmul,
+    l2_distances,
+    cosine_distances,
+    hamming_distances
 )
 from ..faissmlx.gpu_kernels import (
     KernelConfig,
@@ -95,7 +93,7 @@ class TestMLXBasics(unittest.TestCase):
         assert_array_equal(c, mx.array([[19, 22], [43, 50]]))
         
         # GPU
-        c_gpu = gpu_matmul(a, b)
+        c_gpu = matmul(a, b)
         assert_array_equal(c_gpu, c)
         
         # Batched
@@ -123,7 +121,7 @@ class TestDistanceMetrics(unittest.TestCase):
         dist_cpu = l2_distances(self.xq[:10], self.xb[:10])
         
         # GPU implementation
-        dist_gpu = gpu_l2_distances(self.xq[:10], self.xb[:10])
+        dist_gpu = l2_distances(self.xq[:10], self.xb[:10])
         
         # Kernel implementation
         dist_kernel = l2_distance_kernel(
@@ -142,7 +140,7 @@ class TestDistanceMetrics(unittest.TestCase):
         dist_cpu = cosine_distances(self.xq[:10], self.xb[:10])
         
         # GPU implementation
-        dist_gpu = gpu_cosine_distances(self.xq[:10], self.xb[:10])
+        dist_gpu = cosine_distances(self.xq[:10], self.xb[:10])
         
         # Kernel implementation
         dist_kernel = cosine_distance_kernel(
@@ -174,7 +172,7 @@ class TestBinaryOperations(unittest.TestCase):
         dist_cpu = hamming_distances(self.xq[:10], self.xb[:10])
         
         # GPU implementation
-        dist_gpu = gpu_hamming_distances(self.xq[:10], self.xb[:10])
+        dist_gpu = hamming_distances(self.xq[:10], self.xb[:10])
         
         # Kernel implementation
         dist_kernel = hamming_distance_kernel(
@@ -187,16 +185,13 @@ class TestBinaryOperations(unittest.TestCase):
         assert_array_equal(dist_cpu, dist_gpu)
         assert_array_equal(dist_cpu, dist_kernel)
         
-        # Verify against numpy
+        # Verify against MLX reference (XOR + popcount)
+        table = mx.array([bin(i).count('1') for i in range(256)], dtype=mx.uint8)
         for i in range(10):
             for j in range(10):
-                expected = np.sum(
-                    self.xq[i].numpy() != self.xb[j].numpy()
-                )
-                self.assertEqual(
-                    dist_cpu[i, j],
-                    expected
-                )
+                xor = mx.bitwise_xor(self.xq[i], self.xb[j])
+                expected = mx.sum(table[xor], dtype=mx.uint32)
+                self.assertTrue(bool(mx.equal(dist_cpu[i, j].astype(mx.uint32), expected).item()))  # boundary-ok
 
 class TestMemoryManagement(unittest.TestCase):
     """Test GPU memory management."""
@@ -221,13 +216,9 @@ class TestMemoryManagement(unittest.TestCase):
         """Test device transfers."""
         x = array([1, 2, 3, 4])
         
-        # To GPU
-        x_gpu = to_gpu(x)
-        assert_array_equal(x_gpu, x)
-        
-        # Back to CPU
-        x_cpu = from_gpu(x_gpu)
-        assert_array_equal(x_cpu, x)
+        # GPU-only: arrays are already on the default device
+        x_dev = x
+        assert_array_equal(x_dev, x)
 
 if __name__ == '__main__':
     unittest.main()

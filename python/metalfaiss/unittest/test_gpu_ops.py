@@ -6,22 +6,19 @@ ensuring they produce correct results and handle memory properly.
 """
 
 import unittest
-import numpy as np
 import mlx.core as mx
 from typing import List, Tuple
 from ..faissmlx.gpu_ops import (
     GpuResources,
     GpuMemoryManager,
-    to_gpu,
-    from_gpu,
-    gpu_matmul,
-    gpu_l2_distances,
-    gpu_cosine_distances,
-    gpu_hamming_distances,
-    gpu_binary_and,
-    gpu_binary_or,
-    gpu_binary_xor,
-    gpu_popcount
+    matmul,
+    l2_distances,
+    cosine_distances,
+    hamming_distances,
+    binary_and,
+    binary_or,
+    binary_xor,
+    popcount
 )
 
 class TestGpuResources(unittest.TestCase):
@@ -92,118 +89,92 @@ class TestGpuArrayOps(unittest.TestCase):
         """Test array movement between CPU and GPU."""
         # From list
         x = [[1, 2], [3, 4]]
-        x_gpu = to_gpu(x)
+        x_gpu = mx.array(x)
         self.assertEqual(x_gpu.shape, (2, 2))
-        np.testing.assert_array_equal(
-            from_gpu(x_gpu),
-            np.array(x)
-        )
+        from .mlx_test_utils import assert_array_equal
+        assert_array_equal(x_gpu, mx.array(x))
         
         # From numpy
-        x = np.random.randn(3, 4)
-        x_gpu = to_gpu(x)
-        np.testing.assert_array_almost_equal(
-            from_gpu(x_gpu),
-            x
-        )
+        x = mx.random.normal(shape=(3, 4))
+        x_gpu = x
+        from .mlx_test_utils import assert_allclose
+        assert_allclose(x_gpu, x)
         
         # From MLX array
-        x = mx.random.normal((2, 3))
-        x_gpu = to_gpu(x)
-        np.testing.assert_array_almost_equal(
-            from_gpu(x_gpu),
-            x.numpy()
-        )
+        x = mx.random.normal(shape=(2, 3))
+        x_gpu = x
+        assert_allclose(x_gpu, x)
 
 class TestGpuMatrixOps(unittest.TestCase):
     """Test GPU matrix operations."""
     
     def test_matmul(self):
         """Test matrix multiplication."""
-        a = to_gpu([[1, 2], [3, 4]])
-        b = to_gpu([[5, 6], [7, 8]])
-        c = gpu_matmul(a, b)
+        a = mx.array([[1, 2], [3, 4]])
+        b = mx.array([[5, 6], [7, 8]])
+        c = matmul(a, b)
         
-        np.testing.assert_array_equal(
-            from_gpu(c),
-            np.array([[19, 22], [43, 50]])
-        )
+        from .mlx_test_utils import assert_array_equal
+        assert_array_equal(c, mx.array([[19, 22], [43, 50]]))
 
 class TestGpuDistanceOps(unittest.TestCase):
     """Test GPU distance computations."""
     
     def test_l2_distances(self):
         """Test L2 distance computation."""
-        x = to_gpu([[1, 0], [0, 1]])
-        y = to_gpu([[1, 1], [0, 0]])
+        x = mx.array([[1, 0], [0, 1]])
+        y = mx.array([[1, 1], [0, 0]])
         
-        dists = gpu_l2_distances(x, y)
-        np.testing.assert_array_almost_equal(
-            from_gpu(dists),
-            np.array([[1, 1], [2, 1]])
-        )
+        dists = l2_distances(x, y)
+        from .mlx_test_utils import assert_allclose
+        assert_allclose(dists, mx.array([[1.0, 1.0], [2.0, 1.0]], dtype=mx.float32))
         
     def test_cosine_distances(self):
         """Test cosine distance computation."""
-        x = to_gpu([[1, 0], [1, 1]])
-        y = to_gpu([[1, 1], [0, 1]])
+        x = mx.array([[1, 0], [1, 1]])
+        y = mx.array([[1, 1], [0, 1]])
         
-        dists = gpu_cosine_distances(x, y)
+        dists = cosine_distances(x, y)
         # cos(0) = 1, cos(45°) ≈ 0.707
-        expected = np.array([[0.293, 1], [0.293, 0.293]])
-        np.testing.assert_array_almost_equal(
-            from_gpu(dists),
-            expected,
-            decimal=3
-        )
+        expected = mx.array([[0.293, 1.0], [0.293, 0.293]], dtype=mx.float32)
+        from .mlx_test_utils import assert_allclose
+        assert_allclose(mx.round(dists, 3), expected, rtol=1e-3, atol=1e-3)
         
     def test_hamming_distances(self):
         """Test Hamming distance computation."""
-        x = to_gpu([[0, 1, 1], [1, 1, 0]], dtype="uint8")
-        y = to_gpu([[1, 1, 1], [0, 0, 0]], dtype="uint8")
+        x = mx.array([[0, 1, 1], [1, 1, 0]], dtype=mx.uint8)
+        y = mx.array([[1, 1, 1], [0, 0, 0]], dtype=mx.uint8)
         
-        dists = gpu_hamming_distances(x, y)
-        np.testing.assert_array_equal(
-            from_gpu(dists),
-            np.array([[1, 3], [3, 2]])
-        )
+        dists = hamming_distances(x, y)
+        from .mlx_test_utils import assert_array_equal
+        assert_array_equal(dists, mx.array([[1, 3], [3, 2]], dtype=mx.uint32))
 
 class TestGpuBinaryOps(unittest.TestCase):
     """Test GPU binary operations."""
     
     def setUp(self):
         """Create test data."""
-        self.x = to_gpu([0b1010, 0b1100], dtype="uint8")
-        self.y = to_gpu([0b1100, 0b1010], dtype="uint8")
+        self.x = mx.array([0b1010, 0b1100], dtype=mx.uint8)
+        self.y = mx.array([0b1100, 0b1010], dtype=mx.uint8)
         
     def test_binary_ops(self):
         """Test basic binary operations."""
+        from .mlx_test_utils import assert_array_equal
         # AND
-        np.testing.assert_array_equal(
-            from_gpu(gpu_binary_and(self.x, self.y)),
-            np.array([0b1000, 0b1000], dtype=np.uint8)
-        )
+        assert_array_equal(binary_and(self.x, self.y), mx.array([0b1000, 0b1000], dtype=mx.uint8))
         
         # OR
-        np.testing.assert_array_equal(
-            from_gpu(gpu_binary_or(self.x, self.y)),
-            np.array([0b1110, 0b1110], dtype=np.uint8)
-        )
+        assert_array_equal(binary_or(self.x, self.y), mx.array([0b1110, 0b1110], dtype=mx.uint8))
         
         # XOR
-        np.testing.assert_array_equal(
-            from_gpu(gpu_binary_xor(self.x, self.y)),
-            np.array([0b0110, 0b0110], dtype=np.uint8)
-        )
+        assert_array_equal(binary_xor(self.x, self.y), mx.array([0b0110, 0b0110], dtype=mx.uint8))
         
     def test_popcount(self):
         """Test population count."""
-        x = to_gpu([0b1010, 0b1111, 0b0000], dtype="uint8")
-        counts = gpu_popcount(x)
-        np.testing.assert_array_equal(
-            from_gpu(counts),
-            np.array([2, 4, 0], dtype=np.uint8)
-        )
+        x = mx.array([0b1010, 0b1111, 0b0000], dtype=mx.uint8)
+        counts = popcount(x)
+        from .mlx_test_utils import assert_array_equal
+        assert_array_equal(counts, mx.array([2, 4, 0], dtype=mx.uint8))
 
 if __name__ == '__main__':
     unittest.main()

@@ -12,10 +12,18 @@ Notes
 """
 
 import mlx.core as mx
-from typing import List, Tuple, Union, Optional
+from typing import List, Tuple, Optional
 from enum import Enum
 from dataclasses import dataclass
 from .ops import Device
+from .device_guard import require_gpu
+
+# Graceful compile decorator if available
+try:
+    compile_fn = mx.compile  # type: ignore[attr-defined]
+except Exception:  # pragma: no cover
+    def compile_fn(f):
+        return f
 
 @dataclass
 class GpuResources:
@@ -29,9 +37,11 @@ class GpuResources:
     current_memory: int = 0
     
     def __post_init__(self):
-        """Initialize GPU device."""
-        # TODO: Add explicit device initialization when MLX supports it
-        pass
+        """Basic parameter validation for GPU-only setup."""
+        if self.device_id != 0:
+            raise ValueError("Only device_id=0 is supported in GPU-only mode")
+        if self.max_memory is not None and self.max_memory <= 0:
+            raise ValueError("max_memory must be positive if provided")
         
     def allocate(self, size: int) -> bool:
         """Track memory allocation.
@@ -61,40 +71,36 @@ DEFAULT_GPU = GpuResources()
 
 # GPU Array Operations
 
-def to_gpu(x: Union[mx.array, List]) -> mx.array:
-    """Ensure `x` is an MLX array (placed on the current default device).
-
-    MLX currently binds ops to the default device/stream; when explicit array
-    moves are available (e.g., `.to_device()`), this helper will adopt them.
-    """
-    if isinstance(x, mx.array):
-        return x
-    return mx.array(x)
-
-def from_gpu(x: mx.array) -> mx.array:
-    """Pure MLX path: identity (no host conversion)."""
-    return x
+__all__ = [
+    'GpuResources', 'GpuMemoryManager',
+    'matmul', 'l2_distances', 'l2_distances_chunked', 'cosine_distances',
+    'hamming_distances', 'binary_and', 'binary_or', 'binary_xor', 'popcount'
+]
 
 # GPU Matrix Operations
 
-def gpu_matmul(a: mx.array, b: mx.array) -> mx.array:
+@compile_fn
+def matmul(a: mx.array, b: mx.array) -> mx.array:
     """Matrix multiply via MLX (backend-optimized).
 
     When the kernel path is preferred (e.g., for large tiles), call the tiled
     GEMMs in `faissmlx/kernels/gemm_kernels.py`.
     """
+    require_gpu("matmul")
     return mx.matmul(a, b)
 
-def gpu_l2_distances(x: mx.array, y: mx.array) -> mx.array:
+@compile_fn
+def l2_distances(x: mx.array, y: mx.array) -> mx.array:
     """L2 distances: (a-b)^2 = a^2 + b^2 - 2ab (full matrix)."""
+    require_gpu("l2_distances")
     xx = mx.sum(mx.square(x), axis=1, keepdims=True)
     yy = mx.sum(mx.square(y), axis=1)
-    xy = gpu_matmul(x, mx.transpose(y))
+    xy = matmul(x, mx.transpose(y))
     xy2 = mx.add(xy, xy)
     return mx.subtract(mx.add(xx, yy), xy2)
 
 
-def gpu_l2_distances_chunked(x: mx.array, y: mx.array, row_chunk: Optional[int] = None) -> mx.array:
+def l2_distances_chunked(x: mx.array, y: mx.array, row_chunk: Optional[int] = None) -> mx.array:
     """L2 distances computed in row chunks to limit peak memory.
 
     Parameters
@@ -121,12 +127,13 @@ def gpu_l2_distances_chunked(x: mx.array, y: mx.array, row_chunk: Optional[int] 
         xs = x[s:e, :]
         xx = mx.sum(mx.square(xs), axis=1, keepdims=True)
         yy = mx.sum(mx.square(y), axis=1)
-        xy = gpu_matmul(xs, mx.transpose(y))
+        xy = matmul(xs, mx.transpose(y))
         xy2 = mx.add(xy, xy)
         outs.append(mx.subtract(mx.add(xx, yy), xy2))
     return mx.concatenate(outs, axis=0)
 
-def gpu_cosine_distances(x: mx.array, y: mx.array) -> mx.array:
+@compile_fn
+def cosine_distances(x: mx.array, y: mx.array) -> mx.array:
     """GPU-optimized cosine distance computation.
     
     Args:
@@ -137,16 +144,18 @@ def gpu_cosine_distances(x: mx.array, y: mx.array) -> mx.array:
         Distance matrix (n, m) on GPU
     """
     # Normalize and compute dot products efficiently
+    require_gpu("cosine_distances")
     x_norm = mx.sqrt(mx.sum(mx.square(x), axis=1, keepdims=True))
     y_norm = mx.sqrt(mx.sum(mx.square(y), axis=1, keepdims=True))
     x = mx.divide(x, x_norm)
     y = mx.divide(y, y_norm)
-    dot = gpu_matmul(x, mx.transpose(y))
+    dot = matmul(x, mx.transpose(y))
     return mx.subtract(mx.ones_like(dot), dot)
 
 # GPU Binary Operations
 
-def gpu_hamming_distances(x: mx.array, y: mx.array) -> mx.array:
+@compile_fn
+def hamming_distances(x: mx.array, y: mx.array) -> mx.array:
     """GPU-optimized Hamming distance computation.
     
     Args:
@@ -156,30 +165,38 @@ def gpu_hamming_distances(x: mx.array, y: mx.array) -> mx.array:
     Returns:
         Distance matrix (n, m) of uint32 on GPU
     """
-    # Create lookup table for Hamming weight
-    table = mx.array([bin(i).count('1') for i in range(256)], dtype=mx.uint8)
+    require_gpu("hamming_distances")
+    # Lookup table for Hamming weight (reuse from index.binary_index if available)
+    try:
+        from ..index.binary_index import HAMMING_TABLE as table  # type: ignore
+    except Exception:
+        table = mx.array([bin(i).count('1') for i in range(256)], dtype=mx.uint8)
     
     # Compute XOR then lookup Hamming weights
     # TODO: Add optimized implementation when MLX adds GPU-specific ops
     xor = mx.bitwise_xor(x[:, None, :], y[None, :, :])
     return mx.sum(table[xor], axis=2, dtype=mx.uint32)
 
-def gpu_binary_and(x: mx.array, y: mx.array) -> mx.array:
+@compile_fn
+def binary_and(x: mx.array, y: mx.array) -> mx.array:
     """GPU-optimized binary AND."""
-    # TODO: Add optimized implementation
+    require_gpu("binary_and")
     return mx.bitwise_and(x, y)
 
-def gpu_binary_or(x: mx.array, y: mx.array) -> mx.array:
+@compile_fn
+def binary_or(x: mx.array, y: mx.array) -> mx.array:
     """GPU-optimized binary OR."""
-    # TODO: Add optimized implementation
+    require_gpu("binary_or")
     return mx.bitwise_or(x, y)
 
-def gpu_binary_xor(x: mx.array, y: mx.array) -> mx.array:
+@compile_fn
+def binary_xor(x: mx.array, y: mx.array) -> mx.array:
     """GPU-optimized binary XOR."""
-    # TODO: Add optimized implementation
+    require_gpu("binary_xor")
     return mx.bitwise_xor(x, y)
 
-def gpu_popcount(x: mx.array) -> mx.array:
+@compile_fn
+def popcount(x: mx.array) -> mx.array:
     """GPU-optimized population count.
     
     Args:
@@ -188,7 +205,7 @@ def gpu_popcount(x: mx.array) -> mx.array:
     Returns:
         Array with same shape containing bit counts
     """
-    # TODO: Add optimized implementation
+    require_gpu("popcount")
     table = mx.array([bin(i).count('1') for i in range(256)], dtype=mx.uint8)
     return table[x]
 

@@ -17,11 +17,18 @@ from ..vector_transform.binary_transform import BaseBinaryTransform
 from ..errors import InvalidArgumentError
 
 def hamming_distance_table() -> mx.array:
-    """Create lookup table for Hamming weight of bytes."""
-    table = np.zeros(256, dtype=np.uint8)
-    for i in range(256):
-        table[i] = bin(i).count('1')
-    return mx.array(table, dtype=mx.uint8)
+    """Create lookup table for Hamming weight of bytes using MLX ops.
+
+    Uses a standard SWAR (SIMD Within A Register) bit-counting technique:
+        v = v - ((v >> 1) & 0x55)
+        v = (v & 0x33) + ((v >> 2) & 0x33)
+        (v + (v >> 4)) & 0x0F
+    """
+    v = mx.arange(256, dtype=mx.uint8)
+    v = mx.subtract(v, mx.bitwise_and(mx.right_shift(v, mx.array(1, dtype=mx.uint8)), mx.array(0x55, dtype=mx.uint8)))
+    v = mx.add(mx.bitwise_and(v, mx.array(0x33, dtype=mx.uint8)), mx.bitwise_and(mx.right_shift(v, mx.array(2, dtype=mx.uint8)), mx.array(0x33, dtype=mx.uint8)))
+    v = mx.bitwise_and(mx.add(v, mx.right_shift(v, mx.array(4, dtype=mx.uint8))), mx.array(0x0F, dtype=mx.uint8))
+    return v.astype(mx.uint8)
 
 # Global Hamming weight lookup table
 HAMMING_TABLE = hamming_distance_table()

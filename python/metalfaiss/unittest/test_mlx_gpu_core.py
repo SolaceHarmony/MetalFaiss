@@ -15,11 +15,9 @@ from ..faissmlx.ops import array
 from ..faissmlx.gpu_ops import (
     GpuResources,
     GpuMemoryManager,
-    to_gpu,
-    from_gpu,
-    gpu_l2_distances,
-    gpu_cosine_distances,
-    gpu_hamming_distances
+    l2_distances,
+    cosine_distances,
+    hamming_distances
 )
 from ..faissmlx.gpu_kernels import (
     KernelConfig,
@@ -65,16 +63,15 @@ class TestGpuSelect(unittest.TestCase):
         cpu_values = mx.take(distances, cpu_indices)
         
         # Get top-k on GPU
-        gpu_distances = to_gpu(distances)
+        # Direct MLX arrays (GPU-only project)
         gpu_values, gpu_indices = self.resources.topk(
-            gpu_distances,
+            distances,
             self.k,
             largest=False
         )
-        
         # Results should match
-        self.assertTrue(bool(mx.all(mx.equal(from_gpu(gpu_indices), cpu_indices)).item()))
-        self.assertTrue(bool(mx.allclose(from_gpu(gpu_values), cpu_values, rtol=1e-5, atol=1e-7).item()))
+        self.assertTrue(bool(mx.all(mx.equal(gpu_indices, cpu_indices)).item()))
+        self.assertTrue(bool(mx.allclose(gpu_values, cpu_values, rtol=1e-5, atol=1e-7).item()))
         
     def test_partition(self):
         """Test array partitioning."""
@@ -88,13 +85,11 @@ class TestGpuSelect(unittest.TestCase):
         pivot = values[order[k]]
         
         # Partition on GPU
-        gpu_values = to_gpu(values)
-        gpu_pivot = self.resources.partition(gpu_values, k)
-        gpu_values = from_gpu(gpu_values)
+        gpu_pivot = self.resources.partition(values, k)
         
         # Check partition properties
-        left_count = int(mx.sum(mx.less_equal(gpu_values, mx.array(float(gpu_pivot), dtype=gpu_values.dtype))).item())
-        right_count = int(mx.sum(mx.greater(gpu_values, mx.array(float(gpu_pivot), dtype=gpu_values.dtype))).item())
+        left_count = int(mx.sum(mx.less_equal(values, mx.array(float(gpu_pivot), dtype=values.dtype))).item())
+        right_count = int(mx.sum(mx.greater(values, mx.array(float(gpu_pivot), dtype=values.dtype))).item())
         self.assertLessEqual(left_count, k)
         self.assertGreaterEqual(right_count, self.n - k)
 
@@ -124,7 +119,7 @@ class TestGpuDistance(unittest.TestCase):
         cpu_distances = mx.sum(diffs * diffs, axis=2)
                 
         # GPU implementations
-        gpu_distances = gpu_l2_distances(self.xq, self.xb)
+        gpu_distances = l2_distances(self.xq, self.xb)
         kernel_distances = l2_distance_kernel(
             self.xq,
             self.xb,
@@ -145,7 +140,7 @@ class TestGpuDistance(unittest.TestCase):
         cpu_distances = mx.subtract(mx.ones_like(dots), mx.divide(dots, norms))
                 
         # GPU implementations
-        gpu_distances = gpu_cosine_distances(self.xq, self.xb)
+        gpu_distances = cosine_distances(self.xq, self.xb)
         kernel_distances = cosine_distance_kernel(
             self.xq,
             self.xb,
@@ -162,7 +157,7 @@ class TestGpuDistance(unittest.TestCase):
         cpu_distances = mx.sum(mx.not_equal(self.xq_bin[:, None, :], self.xb_bin[None, :, :]).astype(mx.uint32), axis=2)
                 
         # GPU implementations
-        gpu_distances = gpu_hamming_distances(self.xq_bin, self.xb_bin)
+        gpu_distances = hamming_distances(self.xq_bin, self.xb_bin)
         kernel_distances = hamming_distance_kernel(
             self.xq_bin,
             self.xb_bin,
@@ -189,12 +184,12 @@ class TestGpuVectorOps(unittest.TestCase):
         """Test reduction operations."""
         # Sum reduction
         cpu_sum = float(mx.sum(self.x).item())
-        gpu_sum = self.resources.sum(to_gpu(self.x))
+        gpu_sum = self.resources.sum(self.x)
         self.assertAlmostEqual(float(gpu_sum), cpu_sum, places=5)
         
         # Mean reduction
         cpu_mean = float(mx.mean(self.x).item())
-        gpu_mean = self.resources.mean(to_gpu(self.x))
+        gpu_mean = self.resources.mean(self.x)
         self.assertAlmostEqual(float(gpu_mean), cpu_mean, places=5)
         
     def test_elementwise(self):
@@ -203,19 +198,13 @@ class TestGpuVectorOps(unittest.TestCase):
         
         # Addition
         cpu_add = mx.add(self.x, y)
-        gpu_add = self.resources.add(
-            to_gpu(self.x),
-            to_gpu(y)
-        )
-        self.assertTrue(bool(mx.allclose(from_gpu(gpu_add), cpu_add, rtol=1e-5, atol=1e-7).item()))
+        gpu_add = self.resources.add(self.x, y)
+        self.assertTrue(bool(mx.allclose(gpu_add, cpu_add, rtol=1e-5, atol=1e-7).item()))
         
         # Multiplication
         cpu_mul = mx.multiply(self.x, y)
-        gpu_mul = self.resources.multiply(
-            to_gpu(self.x),
-            to_gpu(y)
-        )
-        self.assertTrue(bool(mx.allclose(from_gpu(gpu_mul), cpu_mul, rtol=1e-5, atol=1e-7).item()))
+        gpu_mul = self.resources.multiply(self.x, y)
+        self.assertTrue(bool(mx.allclose(gpu_mul, cpu_mul, rtol=1e-5, atol=1e-7).item()))
 
 if __name__ == '__main__':
     unittest.main()
