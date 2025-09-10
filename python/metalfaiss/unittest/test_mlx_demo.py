@@ -14,7 +14,7 @@ from typing import List, Tuple
 import time
 
 from ..faissmlx.ops import array
-from ..faissmlx.gpu_ops import GpuResources
+from ..faissmlx.resources import Resources
 from ..index.flat_index import FlatIndex
 from ..index.ivf_flat_index import IVFFlatIndex
 from ..index.product_quantizer_index import ProductQuantizerIndex
@@ -102,7 +102,7 @@ class TestGPUUsage(unittest.TestCase):
         print(f"CPU search time: {t1-t0:.3f}s")
         
         # Create GPU index
-        resources = GpuResources()
+        resources = Resources()
         index_gpu = index_cpu.to_gpu(resources)
         
         t0 = time.time()
@@ -151,7 +151,7 @@ class TestMultiGPUUsage(unittest.TestCase):
         print(f"CPU search time: {t1-t0:.3f}s")
         
         # Create sharded GPU index
-        resources = [GpuResources() for _ in range(2)]
+        resources = [Resources() for _ in range(2)]
         index_gpu = index_cpu.to_gpus(
             resources,
             shard=True,
@@ -201,7 +201,7 @@ class TestBinaryUsage(unittest.TestCase):
         print(f"CPU search time: {t1-t0:.3f}s")
         
         # Create GPU index
-        resources = GpuResources()
+        resources = Resources()
         index_gpu = index_cpu.to_gpu(resources)
         
         t0 = time.time()

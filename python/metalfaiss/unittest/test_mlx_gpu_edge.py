@@ -13,9 +13,9 @@ import mlx.core as mx
 from typing import List, Tuple
 
 from ..faissmlx.ops import array
-from ..faissmlx.gpu_ops import (
-    GpuResources,
-    GpuMemoryManager,
+from ..faissmlx.resources import (
+    Resources,
+    MemoryManager,
 )
 from ..index.flat_index import FlatIndex
 from ..index.ivf_flat_index import IVFFlatIndex
@@ -32,8 +32,8 @@ class TestGpuMemory(unittest.TestCase):
     def setUp(self):
         """Create test data."""
         self.d = 256
-        self.resources = GpuResources(max_memory=1024 * 1024)  # 1MB limit
-        self.manager = GpuMemoryManager(self.resources)
+        self.resources = Resources(max_memory=1024 * 1024)  # 1MB limit
+        self.manager = MemoryManager(self.resources)
         
     def test_memory_limit(self):
         """Test memory limit enforcement."""
@@ -161,14 +161,14 @@ class TestResourceManagement(unittest.TestCase):
     def setUp(self):
         """Create resources."""
         self.resources = [
-            GpuResources(max_memory=1024 * 1024)
+            Resources(max_memory=1024 * 1024)
             for _ in range(2)
         ]
         
     def test_resource_isolation(self):
         """Test resource isolation."""
         # Allocate on first GPU
-        with GpuMemoryManager(self.resources[0]):
+        with MemoryManager(self.resources[0]):
             arr1 = self.resources[0].alloc((1000,), dtype="float32")
             mem1 = self.resources[0].current_memory
             
@@ -185,12 +185,12 @@ class TestResourceManagement(unittest.TestCase):
         self.resources[1].max_memory = 2 * 1024 * 1024  # 2MB
         
         # First GPU should fail sooner
-        with GpuMemoryManager(self.resources[0]):
+        with MemoryManager(self.resources[0]):
             with self.assertRaises(MemoryError):
                 arr = self.resources[0].alloc((1100000,), dtype="float32")
                 
         # Second GPU should succeed
-        with GpuMemoryManager(self.resources[1]):
+        with MemoryManager(self.resources[1]):
             arr = self.resources[1].alloc((1100000,), dtype="float32")
             self.assertEqual(arr.shape, (1100000,))
 
@@ -199,20 +199,20 @@ class TestErrorHandling(unittest.TestCase):
     
     def setUp(self):
         """Create resources."""
-        self.resources = GpuResources()
+        self.resources = Resources()
         
     def test_invalid_device(self):
         """Test invalid device handling."""
         with self.assertRaises(ValueError):
-            GpuResources(device_id=-1)
+            Resources(device_id=-1)
             
         with self.assertRaises(ValueError):
-            GpuResources(device_id=1000)
+            Resources(device_id=1000)
             
     def test_invalid_memory(self):
         """Test invalid memory configuration."""
         with self.assertRaises(ValueError):
-            GpuResources(max_memory=-1)
+            Resources(max_memory=-1)
             
     # GPU-only design: transfer/resource exhaustion tests removed.
 

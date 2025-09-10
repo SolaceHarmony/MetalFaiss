@@ -14,7 +14,7 @@ import tempfile
 import os
 
 from ..faissmlx.ops import array
-from ..faissmlx.gpu_ops import GpuResources
+from ..faissmlx.resources import Resources
 from ..index.flat_index import FlatIndex
 from ..index.ivf_flat_index import IVFFlatIndex
 from ..index.product_quantizer_index import ProductQuantizerIndex
@@ -95,7 +95,7 @@ class TestMLXSerialize(unittest.TestCase):
         self._test_index_serialization(index)
         
         # GPU index
-        resources = GpuResources()
+        resources = Resources()
         index = FlatIndex(self.d).to_gpu(resources)
         self._test_index_serialization(index)
         
@@ -106,7 +106,7 @@ class TestMLXSerialize(unittest.TestCase):
         self._test_index_serialization(index)
         
         # GPU index
-        resources = GpuResources()
+        resources = Resources()
         index = IVFFlatIndex(self.d, self.nlist).to_gpu(resources)
         self._test_index_serialization(index)
         
@@ -117,7 +117,7 @@ class TestMLXSerialize(unittest.TestCase):
         self._test_index_serialization(index)
         
         # GPU index
-        resources = GpuResources()
+        resources = Resources()
         index = ProductQuantizerIndex(self.d, self.nlist, M=4).to_gpu(resources)
         self._test_index_serialization(index)
         
@@ -128,7 +128,7 @@ class TestMLXSerialize(unittest.TestCase):
         self._test_index_serialization(index)
         
         # GPU index
-        resources = GpuResources()
+        resources = Resources()
         index = ScalarQuantizerIndex(self.d, self.nlist).to_gpu(resources)
         self._test_index_serialization(index)
         
@@ -139,7 +139,7 @@ class TestMLXSerialize(unittest.TestCase):
         self._test_index_serialization(index, is_binary=True)
         
         # GPU index
-        resources = GpuResources()
+        resources = Resources()
         index = BinaryFlatIndex(self.d_bin).to_gpu(resources)
         self._test_index_serialization(index, is_binary=True)
         
@@ -150,7 +150,7 @@ class TestMLXSerialize(unittest.TestCase):
         self._test_index_serialization(index, is_binary=True)
         
         # GPU index
-        resources = GpuResources()
+        resources = Resources()
         index = BinaryIVFIndex(self.d_bin, self.nlist).to_gpu(resources)
         self._test_index_serialization(index, is_binary=True)
         

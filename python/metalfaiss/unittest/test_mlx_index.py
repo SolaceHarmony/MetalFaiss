@@ -19,12 +19,7 @@ from ..faissmlx.ops import (
     matmul,
     l2_distances
 )
-from ..faissmlx.gpu_ops import (
-    GpuResources,
-    GpuMemoryManager,
-    to_gpu,
-    from_gpu
-)
+from ..faissmlx.resources import Resources, MemoryManager
 from ..index.flat_index import FlatIndex
 from ..index.ivf_flat_index import IVFFlatIndex
 from ..index.binary_flat_index import BinaryFlatIndex
@@ -184,7 +179,7 @@ class TestIndexTransfer(unittest.TestCase):
         d_cpu, i_cpu = index_cpu.search(self.xq, self.k)
         
         # Transfer to GPU
-        resources = GpuResources()
+        resources = Resources()
         index_gpu = index_cpu.to_gpu(resources)
         
         # Search on GPU
@@ -205,7 +200,7 @@ class TestIndexTransfer(unittest.TestCase):
         d_cpu, i_cpu = index_cpu.search(self.xq, self.k)
         
         # Transfer to GPU
-        resources = GpuResources()
+        resources = Resources()
         index_gpu = index_cpu.to_gpu(resources)
         
         # Search on GPU

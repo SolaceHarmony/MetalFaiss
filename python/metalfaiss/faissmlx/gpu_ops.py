@@ -69,10 +69,14 @@ class GpuResources:
 # Global GPU resources
 DEFAULT_GPU = GpuResources()
 
+# Professional aliases (GPU-only project): prefer neutral names
+class Resources(GpuResources):
+    pass
+
 # GPU Array Operations
 
 __all__ = [
-    'GpuResources', 'GpuMemoryManager',
+    'GpuResources', 'GpuMemoryManager', 'Resources', 'MemoryManager',
     'matmul', 'l2_distances', 'l2_distances_chunked', 'cosine_distances',
     'hamming_distances', 'binary_and', 'binary_or', 'binary_xor', 'popcount'
 ]
@@ -233,6 +237,10 @@ class GpuMemoryManager:
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Exit context manager."""
         self.resources.reset()
+
+# Professional alias (neutral name)
+class MemoryManager(GpuMemoryManager):
+    pass
         
     def alloc(self, shape: Tuple[int, ...], dtype: str = "float32") -> mx.array:
         """Allocate GPU array.
