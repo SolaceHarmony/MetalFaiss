@@ -16,6 +16,14 @@ Operations are organized into categories:
 import mlx.core as mx
 from typing import List, Tuple, Union, Optional
 from enum import Enum
+from .device_guard import require_gpu
+
+# Compile wrapper: use mx.compile when available and define once at import time
+try:
+    compile_fn = mx.compile  # type: ignore[attr-defined]
+except Exception:  # pragma: no cover
+    def compile_fn(f):
+        return f
 
 class Device(Enum):
     """Logical device selector.
@@ -130,8 +138,10 @@ def max(
 
 # Matrix Ops
 
+@compile_fn
 def matmul(a: mx.array, b: mx.array) -> mx.array:
-    """Matrix multiplication."""
+    """Matrix multiplication (GPU‑only)."""
+    require_gpu("ops.matmul")
     return mx.matmul(a, b)
 
 def transpose(x: mx.array, axes: Optional[Tuple[int, ...]] = None) -> mx.array:
@@ -140,6 +150,7 @@ def transpose(x: mx.array, axes: Optional[Tuple[int, ...]] = None) -> mx.array:
 
 # Distance Ops
 
+@compile_fn
 def l2_distances(x: mx.array, y: mx.array) -> mx.array:
     """Compute pairwise L2 distances.
     
@@ -150,6 +161,7 @@ def l2_distances(x: mx.array, y: mx.array) -> mx.array:
     Returns:
         Distance matrix (n, m)
     """
+    require_gpu("ops.l2_distances")
     # Compute (a-b)^2 = a^2 + b^2 - 2ab (pure MLX ops)
     xx = sum(mx.square(x), axis=1, keepdims=True)  # (n, 1)
     yy = sum(mx.square(y), axis=1)                 # (m,)
@@ -157,6 +169,7 @@ def l2_distances(x: mx.array, y: mx.array) -> mx.array:
     # subtract 2*xy using add(xy, xy) to avoid Python scalars
     return mx.subtract(mx.add(xx, yy), mx.add(xy, xy))
 
+@compile_fn
 def cosine_distances(x: mx.array, y: mx.array) -> mx.array:
     """Compute pairwise cosine distances.
     
@@ -167,6 +180,7 @@ def cosine_distances(x: mx.array, y: mx.array) -> mx.array:
     Returns:
         Distance matrix (n, m)
     """
+    require_gpu("ops.cosine_distances")
     # Normalize vectors (no python ops)
     x_norm = mx.sqrt(sum(mx.square(x), axis=1, keepdims=True))
     y_norm = mx.sqrt(sum(mx.square(y), axis=1, keepdims=True))
@@ -176,6 +190,7 @@ def cosine_distances(x: mx.array, y: mx.array) -> mx.array:
     dot = matmul(x, transpose(y))
     return mx.subtract(mx.ones_like(dot), dot)
 
+@compile_fn
 def hamming_distances(x: mx.array, y: mx.array) -> mx.array:
     """Compute pairwise Hamming distances.
     
@@ -186,9 +201,12 @@ def hamming_distances(x: mx.array, y: mx.array) -> mx.array:
     Returns:
         Distance matrix (n, m) of uint32
     """
-    # Create lookup table for Hamming weight (pure MLX construction)
-    table_py = [bin(i).count('1') for i in range(256)]
-    table = mx.array(table_py, dtype=mx.uint8)
+    require_gpu("ops.hamming_distances")
+    # Create lookup table for Hamming weight using SWAR (pure MLX)
+    v = mx.arange(256, dtype=mx.uint8)
+    v = mx.subtract(v, mx.bitwise_and(mx.right_shift(v, mx.array(1, dtype=mx.uint8)), mx.array(0x55, dtype=mx.uint8)))
+    v = mx.add(mx.bitwise_and(v, mx.array(0x33, dtype=mx.uint8)), mx.bitwise_and(mx.right_shift(v, mx.array(2, dtype=mx.uint8)), mx.array(0x33, dtype=mx.uint8)))
+    table = mx.bitwise_and(mx.add(v, mx.right_shift(v, mx.array(4, dtype=mx.uint8))), mx.array(0x0F, dtype=mx.uint8))
     
     # Compute XOR then lookup Hamming weights
     xor = mx.bitwise_xor(x[:, None, :], y[None, :, :])  # (n, m, d)
@@ -209,9 +227,16 @@ def binary_xor(x: mx.array, y: mx.array) -> mx.array:
     return mx.bitwise_xor(x, y)
 
 def binary_not(x: mx.array) -> mx.array:
-    """Bitwise NOT."""
-    return mx.bitwise_not(x)
+    """Bitwise NOT.
 
+    MLX may not expose bitwise_not; emulate for uint8 via XOR with 0xFF.
+    """
+    if hasattr(mx, 'bitwise_not'):
+        return mx.bitwise_not(x)  # type: ignore[attr-defined]
+    # Fallback (assumes uint8 input)
+    return mx.bitwise_xor(x, mx.array(0xFF, dtype=x.dtype))
+
+@compile_fn
 def popcount(x: mx.array) -> mx.array:
     """Count number of 1 bits in each element.
     
@@ -221,9 +246,12 @@ def popcount(x: mx.array) -> mx.array:
     Returns:
         Array with same shape containing bit counts
     """
-    # Use lookup table for uint8
-    table_py = [bin(i).count('1') for i in range(256)]
-    table = mx.array(table_py, dtype=mx.uint8)
+    require_gpu("ops.popcount")
+    # SWAR table for uint8
+    v = mx.arange(256, dtype=mx.uint8)
+    v = mx.subtract(v, mx.bitwise_and(mx.right_shift(v, mx.array(1, dtype=mx.uint8)), mx.array(0x55, dtype=mx.uint8)))
+    v = mx.add(mx.bitwise_and(v, mx.array(0x33, dtype=mx.uint8)), mx.bitwise_and(mx.right_shift(v, mx.array(2, dtype=mx.uint8)), mx.array(0x33, dtype=mx.uint8)))
+    table = mx.bitwise_and(mx.add(v, mx.right_shift(v, mx.array(4, dtype=mx.uint8))), mx.array(0x0F, dtype=mx.uint8))
     return table[x]
 
 # Device Management

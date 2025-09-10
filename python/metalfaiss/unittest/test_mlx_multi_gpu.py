@@ -12,7 +12,7 @@ import time
 
 from ..faissmlx.ops import array
 from ..utils.rng_utils import new_key
-from ..faissmlx.gpu_ops import GpuResources
+from ..faissmlx.resources import Resources
 from ..index.flat_index import FlatIndex
 from ..index.ivf_flat_index import IVFFlatIndex
 from ..index.product_quantizer_index import ProductQuantizerIndex
@@ -54,7 +54,7 @@ class TestShardedFlat(unittest.TestCase):
         d_ref, i_ref = index_cpu.search(self.xq, self.k)
         
         # Create sharded GPU index
-        resources = [GpuResources() for _ in range(2)]
+        resources = [Resources() for _ in range(2)]
         index_gpu = index_cpu.to_gpus(resources, shard=True)
         
         # Search
@@ -95,7 +95,7 @@ class TestShardedIVF(unittest.TestCase):
         d_ref, i_ref = index_cpu.search(self.xq, self.k)
         
         # Create sharded GPU index with shared quantizer
-        resources = [GpuResources() for _ in range(2)]
+        resources = [Resources() for _ in range(2)]
         index_gpu = index_cpu.to_gpus(
             resources,
             shard=True,
@@ -130,7 +130,7 @@ class TestShardedIVF(unittest.TestCase):
         d_ref, i_ref = index_cpu.search(self.xq, self.k)
         
         # Create sharded GPU index
-        resources = [GpuResources() for _ in range(2)]
+        resources = [Resources() for _ in range(2)]
         index_gpu = index_cpu.to_gpus(
             resources,
             shard=True,
@@ -168,7 +168,7 @@ class TestShardedBinary(unittest.TestCase):
         d_ref, i_ref = index_cpu.search(self.xq, self.k)
         
         # Create sharded GPU index
-        resources = [GpuResources() for _ in range(2)]
+        resources = [Resources() for _ in range(2)]
         index_gpu = index_cpu.to_gpus(resources, shard=True)
         
         # Search
@@ -190,7 +190,7 @@ class TestShardedBinary(unittest.TestCase):
         d_ref, i_ref = index_cpu.search(self.xq, self.k)
         
         # Create sharded GPU index
-        resources = [GpuResources() for _ in range(2)]
+        resources = [Resources() for _ in range(2)]
         index_gpu = index_cpu.to_gpus(
             resources,
             shard=True,
@@ -229,7 +229,7 @@ class TestMultiGPUPerformance(unittest.TestCase):
         index_cpu.nprobe = 16
         
         # Time single-GPU search
-        resources = [GpuResources()]
+        resources = [Resources()]
         index_gpu1 = index_cpu.to_gpus(resources)
         
         t0 = time.time()
@@ -238,7 +238,7 @@ class TestMultiGPUPerformance(unittest.TestCase):
         single_gpu_time = t1 - t0
         
         # Time sharded search
-        resources = [GpuResources() for _ in range(2)]
+        resources = [Resources() for _ in range(2)]
         index_gpu2 = index_cpu.to_gpus(
             resources,
             shard=True,

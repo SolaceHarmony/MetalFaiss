@@ -20,9 +20,8 @@ from ..faissmlx.ops import (
     cosine_distances,
     hamming_distances
 )
-from ..faissmlx.gpu_ops import (
-    GpuResources,
-    GpuMemoryManager,
+from ..faissmlx.resources import Resources, MemoryManager
+from ..faissmlx.ops import (
     matmul,
     l2_distances,
     cosine_distances,
@@ -198,8 +197,8 @@ class TestMemoryManagement(unittest.TestCase):
     
     def setUp(self):
         """Create resources."""
-        self.resources = GpuResources(max_memory=1024 * 1024)  # 1MB limit
-        self.manager = GpuMemoryManager(self.resources)
+        self.resources = Resources(max_memory=1024 * 1024)  # 1MB limit
+        self.manager = MemoryManager(self.resources)
         
     def test_allocation(self):
         """Test memory allocation."""

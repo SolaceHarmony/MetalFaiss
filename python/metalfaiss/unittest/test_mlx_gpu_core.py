@@ -12,9 +12,8 @@ import mlx.core as mx
 from typing import List, Tuple
 
 from ..faissmlx.ops import array
-from ..faissmlx.gpu_ops import (
-    GpuResources,
-    GpuMemoryManager,
+from ..faissmlx.resources import Resources, MemoryManager
+from ..faissmlx.ops import (
     l2_distances,
     cosine_distances,
     hamming_distances
@@ -47,7 +46,7 @@ class TestGpuSelect(unittest.TestCase):
         self.d = 32
         self.n = 10000
         self.k = 100
-        self.resources = GpuResources()
+        self.resources = Resources()
         
         # Create test vectors
         self.x = make_data(self.n, self.d)
@@ -101,7 +100,7 @@ class TestGpuDistance(unittest.TestCase):
         self.d = 32
         self.nb = 1000
         self.nq = 100
-        self.resources = GpuResources()
+        self.resources = Resources()
         
         # Create test vectors
         self.xb = make_data(self.nb, self.d)
@@ -175,7 +174,7 @@ class TestGpuVectorOps(unittest.TestCase):
         """Create test data."""
         self.d = 32
         self.n = 1000
-        self.resources = GpuResources()
+        self.resources = Resources()
         
         # Create test vectors
         self.x = make_data(self.n, self.d)
