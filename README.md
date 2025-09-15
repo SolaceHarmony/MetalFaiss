@@ -11,7 +11,7 @@ A pure Python implementation of FAISS (Facebook AI Similarity Search) optimized 
 - **Pure Python Implementation**: No C++ dependencies, easy to install and modify
 - **Metal Acceleration**: Optimized for Apple Silicon using MLX framework
 - **Competitive Performance**: 20x speedup in specialized cases, sub-millisecond operations
-- **Faiss Compatible**: Similar API to original Faiss library
+- **FAISS Compatible**: Similar API to original Faiss library
 - **Lazy Evaluation**: Efficient computation graphs with MLX
 - MLX-only: Requires MLX on Apple Silicon (Metal). No fallbacks.
 
