@@ -207,7 +207,7 @@ While we're missing features, our implementation has unique advantages:
 |------------------|------------|---------------------------|-----|
 | **FastScan Indexes** | 🔥🔥🔥 | 🔶🔶🔶 | **Very High** |
 | **Factory System** | 🔥🔥🔥 | 🔶🔶 | **Very High** |
-| **Advanced Quantizers** | 🔥🔥 | 🔶🔶🔶 | **High** |  
+| **Advanced Quantizers** | 🔥🔥 | 🔶🔶🔶 | **High** |
 | **Extended Metrics** | 🔥🔥 | 🔶 | **High** |
 | **Graph Indexes (NSG)** | 🔥 | 🔶🔶🔶🔶 | **Medium** |
 | **GPU Architecture** | 🔥 | 🔶🔶🔶🔶🔶 | **Medium** |
