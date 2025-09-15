@@ -28,7 +28,7 @@ def table_qr(df: pd.DataFrame) -> str:
     lines = ["| Method | Time (ms) | Speedup vs fastest | Status |",
              "|--------|-----------|--------------------|---------|"]
     for i, r in d.iterrows():
-        speed = baseline / r["value"]
+        speed = baseline / r["value"] if r["value"] > 0 else 0.0
         status = "Fastest" if i == 0 else ("Close second" if i == 1 else "Reference")
         label = r["label"].replace("MLX dot", "MetalFAISS MLX dot").replace("Kernel", "MetalFAISS Kernel")
         lines.append(f"| {('**' + label + '**') if i==0 else label} | {r['ms']:.3f} | {speed:.2f}x | {status} |")
