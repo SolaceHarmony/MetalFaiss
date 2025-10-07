@@ -19,6 +19,7 @@ class BaseIndex:
         """
         self.d = d
         self.metric = metric
+        self._metric_type = metric
         self.is_trained = False
         self.ntotal = 0
         
@@ -72,7 +73,7 @@ class BaseIndex:
     def reset(self) -> None:
         """Reset the index."""
         self.ntotal = 0
-    
+
     # GPU-only project: keep a no-op `.to_gpu` for compatibility
     def to_gpu(self, resources=None):  # type: ignore[override]
         return self
@@ -80,3 +81,12 @@ class BaseIndex:
     def __len__(self) -> int:
         """Get number of vectors in index."""
         return self.ntotal
+
+    @property
+    def metric_type(self) -> MetricType:
+        """Return the configured distance metric."""
+        return self._metric_type
+
+    @metric_type.setter
+    def metric_type(self, value: MetricType) -> None:
+        self._metric_type = value

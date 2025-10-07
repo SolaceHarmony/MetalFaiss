@@ -12,7 +12,6 @@ from .hnsw import HNSW, HNSWStats
 from ..types.metric_type import MetricType
 from ..utils.search_result import SearchResult
 from ..distances import pairwise_L2sqr
-from ..faissmlx.device_guard import require_gpu
 
 class HNSWIndex(BaseIndex):
     """HNSW index with optimized vector storage."""
@@ -30,8 +29,8 @@ class HNSWIndex(BaseIndex):
             M: Number of neighbors per layer (except layer 0 which has 2*M)
             metric_type: Distance metric to use
         """
-        super().__init__(d)
-        self._metric_type = metric_type
+        super().__init__(d, metric=metric_type)
+        self.metric_type = metric_type
         
         # HNSW graph structure
         self.hnsw = HNSW(M)
@@ -69,7 +68,7 @@ class HNSWIndex(BaseIndex):
         # Process in batches
         for i in range(0, n, batch_size):
             batch = vectors[i:min(i + batch_size, n)]
-            if self._metric_type == MetricType.L2:
+            if self.metric_type == MetricType.L2:
                 # Use broadcasting for L2 computation
                 diff = mx.subtract(batch, query.reshape(1, -1))
                 batch_dists = mx.sum(mx.multiply(diff, diff), axis=1)
@@ -112,7 +111,7 @@ class HNSWIndex(BaseIndex):
             vec1 = query if i == len(self._vectors) else self._vectors[i]
             vec2 = self._vectors[j]
             
-            if self._metric_type == MetricType.L2:
+            if self.metric_type == MetricType.L2:
                 diff = mx.subtract(vec1, vec2)
                 dist = float(mx.sum(mx.multiply(diff, diff)).astype(mx.float32).item())  # boundary-ok
             else:  # Inner product
@@ -129,7 +128,6 @@ class HNSWIndex(BaseIndex):
         self.is_trained = True
         
     def add(self, xs: List[List[float]], ids: Optional[List[int]] = None) -> None:
-        require_gpu("HNSWIndex.add")
         """Add vectors to the index.
         
         Args:
@@ -172,7 +170,6 @@ class HNSWIndex(BaseIndex):
         self.hnsw.max_level = 0
         
     def search(self, xs: List[List[float]], k: int) -> SearchResult:
-        require_gpu("HNSWIndex.search")
         """Search for nearest neighbors.
         
         Args:
@@ -196,7 +193,7 @@ class HNSWIndex(BaseIndex):
 
         @mx.custom_function
         def _one(q):
-            return self.hnsw.search_level0_array(q, ef=ef, vectors=self._vectors, metric=self._metric_type, k=k)
+            return self.hnsw.search_level0_array(q, ef=ef, vectors=self._vectors, metric=self.metric_type, k=k)
 
         @_one.vmap
         def _one_vmap(inputs, axes):
@@ -209,7 +206,7 @@ class HNSWIndex(BaseIndex):
             Ds = []
             Is = []
             for iidx in range(n):
-                d, ii = self.hnsw.search_level0_array(Q[iidx], ef=ef, vectors=self._vectors, metric=self._metric_type, k=k)
+                d, ii = self.hnsw.search_level0_array(Q[iidx], ef=ef, vectors=self._vectors, metric=self.metric_type, k=k)
                 Ds.append(d); Is.append(ii)
             return (mx.stack(Ds, axis=0), mx.stack(Is, axis=0)), 0
 

@@ -50,7 +50,6 @@ from .index.id_map import IDMap
 from .index.id_map2 import IDMap2
 from .index.pre_transform_index import PreTransformIndex
 from .index.refine_flat_index import RefineFlatIndex
-from .utils.search_result import SearchResult
 
 
 # ------------ Simple adapters (implemented) ------------
@@ -79,9 +78,9 @@ class IndexFlatL2:
     def add(self, xs: List[List[float]]) -> None:
         self._impl.add(xs)
 
-    def search(self, xs: List[List[float]], k: int) -> SearchResult:
-        vals, idx = self._impl.search(xs, k)
-        return SearchResult(distances=vals, indices=idx)
+    def search(self, xs: List[List[float]], k: int) -> Tuple[mx.array, mx.array]:
+        result = self._impl.search(xs, k)
+        return result.distances, result.indices
 
 
 class IndexFlatIP:
@@ -107,9 +106,9 @@ class IndexFlatIP:
     def add(self, xs: List[List[float]]) -> None:
         self._impl.add(xs)
 
-    def search(self, xs: List[List[float]], k: int) -> SearchResult:
-        vals, idx = self._impl.search(xs, k)
-        return SearchResult(distances=vals, indices=idx)
+    def search(self, xs: List[List[float]], k: int) -> Tuple[mx.array, mx.array]:
+        result = self._impl.search(xs, k)
+        return result.distances, result.indices
 
 
 class IndexIVFFlat:
@@ -143,8 +142,9 @@ class IndexIVFFlat:
     def add(self, xs: List[List[float]], ids: Optional[List[int]] = None) -> None:
         self._impl.add(xs, ids)
 
-    def search(self, xs: List[List[float]], k: int) -> SearchResult:
-        return self._impl.search(xs, k)
+    def search(self, xs: List[List[float]], k: int) -> Tuple[mx.array, mx.array]:
+        result = self._impl.search(xs, k)
+        return result.distances, result.indices
 
 
 class IndexIVFPQ:
@@ -175,8 +175,9 @@ class IndexIVFPQ:
     def add(self, xs: List[List[float]], ids: Optional[List[int]] = None) -> None:
         self._impl.add(xs, ids)
 
-    def search(self, xs: List[List[float]], k: int) -> SearchResult:
-        return self._impl.search(xs, k)
+    def search(self, xs: List[List[float]], k: int) -> Tuple[mx.array, mx.array]:
+        result = self._impl.search(xs, k)
+        return result.distances, result.indices
 
 
 class IndexPQ:
@@ -194,8 +195,9 @@ class IndexPQ:
     def add(self, xs: List[List[float]]) -> None:
         self._impl.add(xs)
 
-    def search(self, xs: List[List[float]], k: int) -> SearchResult:
-        return self._impl.search(xs, k)
+    def search(self, xs: List[List[float]], k: int) -> Tuple[mx.array, mx.array]:
+        result = self._impl.search(xs, k)
+        return result.distances, result.indices
 
 
 class IndexHNSWFlat:
@@ -230,8 +232,9 @@ class IndexHNSWFlat:
     def add(self, xs: List[List[float]]) -> None:
         self._impl.add(xs)
 
-    def search(self, xs: List[List[float]], k: int) -> SearchResult:
-        return self._impl.search(xs, k)
+    def search(self, xs: List[List[float]], k: int) -> Tuple[mx.array, mx.array]:
+        result = self._impl.search(xs, k)
+        return result.distances, result.indices
 
 
 class IndexIDMap:
@@ -243,8 +246,9 @@ class IndexIDMap:
     def add_with_ids(self, xs: List[List[float]], ids: List[int]) -> None:
         self._impl.add_with_ids(xs, ids)
 
-    def search(self, xs: List[List[float]], k: int) -> SearchResult:
-        return self._impl.search(xs, k)
+    def search(self, xs: List[List[float]], k: int) -> Tuple[mx.array, mx.array]:
+        result = self._impl.search(xs, k)
+        return result.distances, result.indices
 
 
 class IndexIDMap2:
@@ -256,8 +260,9 @@ class IndexIDMap2:
     def add_with_ids(self, xs: List[List[float]], ids: List[int]) -> None:
         self._impl.add_with_ids(xs, ids)
 
-    def search(self, xs: List[List[float]], k: int) -> SearchResult:
-        return self._impl.search(xs, k)
+    def search(self, xs: List[List[float]], k: int) -> Tuple[mx.array, mx.array]:
+        result = self._impl.search(xs, k)
+        return result.distances, result.indices
 
 
 class IndexPreTransform:
@@ -272,8 +277,9 @@ class IndexPreTransform:
     def add(self, xs: List[List[float]]) -> None:
         self._impl.add(xs)
 
-    def search(self, xs: List[List[float]], k: int) -> SearchResult:
-        return self._impl.search(xs, k)
+    def search(self, xs: List[List[float]], k: int) -> Tuple[mx.array, mx.array]:
+        result = self._impl.search(xs, k)
+        return result.distances, result.indices
 
 
 class IndexRefineFlat:
@@ -288,8 +294,9 @@ class IndexRefineFlat:
     def add(self, xs: List[List[float]]) -> None:
         self._impl.add(xs)
 
-    def search(self, xs: List[List[float]], k: int) -> SearchResult:
-        return self._impl.search(xs, k)
+    def search(self, xs: List[List[float]], k: int) -> Tuple[mx.array, mx.array]:
+        result = self._impl.search(xs, k)
+        return result.distances, result.indices
 
 
 # ------------ Planned wrappers / stubs ------------
@@ -341,7 +348,7 @@ class IndexShards:
     def add(self, xs: List[List[float]]) -> None:
         raise NotImplementedError("IndexShards.add not implemented. See PLAN.md → Shards/Replicas.")
 
-    def search(self, xs: List[List[float]], k: int) -> SearchResult:
+    def search(self, xs: List[List[float]], k: int) -> Tuple[mx.array, mx.array]:
         raise NotImplementedError("IndexShards.search not implemented. See PLAN.md → Shards/Replicas.")
 
 
@@ -362,7 +369,7 @@ class IndexReplicas:
     def add(self, xs: List[List[float]]) -> None:
         raise NotImplementedError("IndexReplicas.add not implemented. See PLAN.md → Shards/Replicas.")
 
-    def search(self, xs: List[List[float]], k: int) -> SearchResult:
+    def search(self, xs: List[List[float]], k: int) -> Tuple[mx.array, mx.array]:
         raise NotImplementedError("IndexReplicas.search not implemented. See PLAN.md → Shards/Replicas.")
 
 
@@ -433,4 +440,3 @@ __all__ = [
     # functions
     "normalize_L2", "index_factory", "write_index", "read_index",
 ]
-

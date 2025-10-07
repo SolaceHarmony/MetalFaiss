@@ -82,8 +82,10 @@ class IVFIndex(BaseIndex):
             
         # Assign vectors to lists using quantizer
         assignments = self._quantizer.search(xs, 1)
+        start = self._ntotal
         for i, label in enumerate(assignments.labels):
-            self._invlists[label[0]].append((ids[i] if ids else i, x[i]))
+            vid = ids[i] if ids else (start + i)
+            self._invlists[label[0]].append((vid, x[i]))
             
         self._ntotal += len(x)
         

@@ -9,6 +9,7 @@ import mlx.core as mx
 from enum import Enum, auto
 from typing import BinaryIO, Dict, List, Optional, Tuple, Union
 
+from .base_index import BaseIndex
 from .flat_index import FlatIndex
 from .ivf_flat_index import IVFFlatIndex
 from .binary_flat_index import BinaryFlatIndex
@@ -28,7 +29,7 @@ class IOFlag(Enum):
     IO_FLAG_MEM_RESIDENT = auto()
     IO_FLAG_MMAP_RESIDENT = auto()
 
-def write_index(index: 'BaseIndex', fname: str) -> None:
+def write_index(index: BaseIndex, fname: str) -> None:
     """Write index to file.
     
     Args:
@@ -60,7 +61,7 @@ def write_index(index: 'BaseIndex', fname: str) -> None:
         # Write index-specific data
         index.write(f)
 
-def read_index(fname: str) -> 'BaseIndex':
+def read_index(fname: str) -> BaseIndex:
     """Read index from file.
     
     Args:

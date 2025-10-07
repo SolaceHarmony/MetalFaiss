@@ -13,7 +13,6 @@ from .binary_index import BaseBinaryIndex
 from .hnsw import HNSW, HNSWStats
 from ..utils.search_result import SearchResult
 from ..errors import InvalidArgumentError
-from ..faissmlx.device_guard import require_gpu
 
 class BinaryHNSWIndex(BaseBinaryIndex):
     """Binary HNSW index.
@@ -79,7 +78,6 @@ class BinaryHNSWIndex(BaseBinaryIndex):
         xs: List[List[int]],
         ids: Optional[List[int]] = None
     ) -> None:
-        require_gpu("BinaryHNSWIndex.add")
         """Add binary vectors to the index.
         
         Args:
@@ -126,7 +124,6 @@ class BinaryHNSWIndex(BaseBinaryIndex):
         self._ntotal += n
         
     def _search(self, xs: List[List[int]], k: int) -> SearchResult:
-        require_gpu("BinaryHNSWIndex.search")
         """Search for nearest neighbors by Hamming distance.
         
         Uses HNSW graph to efficiently find approximate nearest neighbors

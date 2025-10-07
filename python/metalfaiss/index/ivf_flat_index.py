@@ -11,12 +11,8 @@ from ..utils.search_result import SearchResult
 from ..index.index_error import IndexError
 from ..utils.sorting import topk_smallest_axis1
 from ..distances import pairwise_L2sqr
-import os
 from ..faissmlx.flags import ivf_fused_enabled
-try:
-    from ..faissmlx.kernels.ivf_kernels import ivf_list_topk_l2
-except Exception:
-    ivf_list_topk_l2 = None  # type: ignore
+from ..faissmlx.kernels.ivf_kernels import ivf_list_topk_l2
 
 class IVFFlatIndex(BaseIndex):
     """IVF index that stores raw vectors in inverted lists."""

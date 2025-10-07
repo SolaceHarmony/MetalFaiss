@@ -187,13 +187,13 @@ class TestDeviceOps(unittest.TestCase):
     def test_device_ops(self):
         """Test device placement and queries."""
         x = array([1, 2, 3])
-        
-        # For now, everything is on CPU
-        self.assertEqual(get_device(x), Device.CPU)
-        
-        # Moving to device is no-op for now
+        if not hasattr(mx, "gpu"):
+            with self.assertRaises(RuntimeError):
+                to_device(x, Device.GPU)
+            return
+
         y = to_device(x, Device.GPU)
-        self.assertEqual(get_device(y), Device.CPU)
+        self.assertEqual(get_device(y), Device.GPU)
         self.assertTrue(bool(mx.all(mx.equal(x, y)).item()))  # boundary-ok
 
 if __name__ == '__main__':

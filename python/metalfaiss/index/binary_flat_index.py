@@ -6,7 +6,6 @@ import mlx.core as mx
 from typing import List, Optional, Tuple, Union
 from .binary_index import BaseBinaryIndex
 from ..types.metric_type import MetricType
-from ..faissmlx.device_guard import require_gpu
 from ..utils.search_result import SearchResult, SearchRangeResult
 
 class BinaryFlatIndex(BaseBinaryIndex):
@@ -31,7 +30,6 @@ class BinaryFlatIndex(BaseBinaryIndex):
         Args:
             x: Binary vectors to add (n, d)
         """
-        require_gpu("BinaryFlatIndex.add")
         if x.shape[1] != self.d:
             raise ValueError(f"Vector dimension {x.shape[1]} != index dimension {self.d}")
             
@@ -63,7 +61,6 @@ class BinaryFlatIndex(BaseBinaryIndex):
             distances: Hamming distances (n, k)
             indices: Indices of nearest neighbors (n, k)
         """
-        require_gpu("BinaryFlatIndex.search")
         if x.shape[1] != self.d:
             raise ValueError(f"Query dimension {x.shape[1]} != index dimension {self.d}")
             
@@ -109,7 +106,6 @@ class BinaryFlatIndex(BaseBinaryIndex):
         Returns:
             SearchRangeResult containing distances and indices
         """
-        require_gpu("BinaryFlatIndex.range_search")
         if x.shape[1] != self.d:
             raise ValueError(f"Query dimension {x.shape[1]} != index dimension {self.d}")
             

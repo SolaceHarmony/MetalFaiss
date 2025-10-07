@@ -35,7 +35,7 @@ from .index.scalar_quantizer_index import ScalarQuantizerIndex
 from .index.product_quantizer_index import ProductQuantizerIndex
 from .index.hnsw_index import HNSWFlatIndex
 from .index.lsh_index import LSHIndex
-from .index.id_map import IDMap
+from .index.id_map import IDMap, IDMap2
 from .index.pre_transform_index import PreTransformIndex
 
 # Vector transforms (names normalized here)
@@ -153,22 +153,14 @@ class IndexFactory:
             if prefix_wrapper == 'IDMap':
                 base = IDMap(base)
             elif prefix_wrapper == 'IDMap2':
-                try:
-                    from .index.id_map import IDMap2 as _IDMap2
-                    base = _IDMap2(base)
-                except Exception as e:
-                    raise InvalidArgumentError(f"IDMap2 unsupported: {e}")
+                base = IDMap2(base)
 
         # Apply suffix wrappers
         for s in suffixes:
             if s == 'IDMap':
                 base = IDMap(base)
             elif s == 'IDMap2':
-                try:
-                    from .index.id_map import IDMap2 as _IDMap2
-                    base = _IDMap2(base)
-                except Exception as e:
-                    raise InvalidArgumentError(f"IDMap2 unsupported: {e}")
+                base = IDMap2(base)
             elif s == 'RFlat':
                 from .index.refine_flat_index import RefineFlatIndex
                 base = RefineFlatIndex(base)
@@ -216,7 +208,6 @@ class IndexFactory:
                 m = cls._extract_number(second_part, 'PQ', default=8)
                 return IVFPQIndex(d=d, nlist=nlist, M=m, nbits=8, metric_type=metric)
             elif second_part.startswith('SQ'):
-                # Not yet implemented in this codebase
                 sq_type = cls._parse_sq_type(second_part)
                 raise NotImplementedError(f"IVF+SQ ({sq_type}) is not implemented yet")
         
@@ -230,11 +221,7 @@ class IndexFactory:
         elif first_part in ('IDMap', 'IDMap2'):
             base_index = cls._parse_simple_index(d, second_part, metric)
             if first_part == 'IDMap2':
-                try:
-                    from .index.id_map import IDMap2 as _IDMap2
-                    return _IDMap2(base_index)
-                except Exception as e:
-                    raise InvalidArgumentError(f"IDMap2 unsupported: {e}")
+                return IDMap2(base_index)
             return IDMap(base_index)
         
         raise InvalidArgumentError(f"Unsupported composite description: {description}")
@@ -414,11 +401,7 @@ def reverse_factory(index: BaseIndex) -> str:
     from .index.hnsw_index import HNSWIndex as _HNSW
     from .index.product_quantizer_index import ProductQuantizerIndex as _PQI
     from .index.scalar_quantizer_index import ScalarQuantizerIndex as _SQI
-    from .index.id_map import IDMap as _IDMap
-    try:
-        from .index.id_map import IDMap2 as _IDMap2
-    except Exception:
-        _IDMap2 = None
+    from .index.id_map import IDMap as _IDMap, IDMap2 as _IDMap2
     from .index.pre_transform_index import PreTransformIndex as _PTI
     from .vector_transform.pca_matrix import PCAMatrixTransform as _PCA
     from .vector_transform.opq import OPQTransform as _OPQ
@@ -448,8 +431,7 @@ def reverse_factory(index: BaseIndex) -> str:
             bits = qtype[len('QT_'):-len('bit')]
             return f"SQ{bits}"
         raise InvalidArgumentError(f"Unsupported SQ qtype: {qtype}")
-    if _IDMap2 is not None and isinstance(index, _IDMap2):
-        # Limit to Flat base for reverse
+    if isinstance(index, _IDMap2):
         return "IDMap2,Flat"
     if isinstance(index, _IDMap):
         return "IDMap,Flat"
@@ -506,13 +488,10 @@ def reverse_factory(index: BaseIndex) -> str:
             i += 1
         return ",".join(tokens + [base_key])
     # Refine wrapper (RFlat)
-    try:
-        from .index.refine_flat_index import RefineFlatIndex as _RFlat
-        if isinstance(index, _RFlat):
-            inner = reverse_factory(index.base_index)
-            return f"{inner},RFlat"
-    except Exception:
-        pass
+    from .index.refine_flat_index import RefineFlatIndex as _RFlat
+    if isinstance(index, _RFlat):
+        inner = reverse_factory(index.base_index)
+        return f"{inner},RFlat"
     raise InvalidArgumentError(f"reverse_factory: unsupported index type {type(index).__name__}")
 
 

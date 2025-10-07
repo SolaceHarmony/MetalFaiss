@@ -87,11 +87,7 @@ def mlx_topk(
     return top_vals, top_idx
 
 # Compile-friendly top-k for common axis=1 use cases.
-try:
-    compile_fn = mx.compile  # type: ignore[attr-defined]
-except Exception:  # pragma: no cover
-    def compile_fn(f):
-        return f
+compile_fn = mx.compile  # type: ignore[attr-defined]
 
 @compile_fn
 def topk_smallest_axis1(x: mx.array, k: int) -> Tuple[mx.array, mx.array]:

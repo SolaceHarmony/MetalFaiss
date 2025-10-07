@@ -1,4 +1,4 @@
-from typing import List, Optional, ClassVar
+from typing import List, Optional
 import mlx.core as mx
 from .base_index import BaseIndex
 from ..utils.search_result import SearchResult
@@ -27,10 +27,11 @@ class FlatIndex(BaseIndex):
             metric_type: Distance metric to use
         """
         super().__init__(d, metric=metric_type)
-        self._metric_type = metric_type
+        self.metric_type = metric_type
         self._vectors: Optional[mx.array] = None
-        self._is_trained = True  # legacy flag
-        self.is_trained = True   # base flag
+        self._ids: Optional[mx.array] = None
+        self._id_to_row: dict[int, int] = {}
+        self.is_trained = True
         
     @classmethod
     def from_index(cls, index: BaseIndex) -> Optional['FlatIndex']:
@@ -47,8 +48,8 @@ class FlatIndex(BaseIndex):
         return None
         
     def train(self, xs: List[List[float]]) -> None:
-        """Train is a no-op for flat index."""
-        pass  # Flat index doesn't need training
+        """Flat indexes are always considered trained."""
+        self.is_trained = True
         
     def add(self, xs: List[List[float]], ids: Optional[List[int]] = None) -> None:
         """Add vectors to the index.
@@ -57,15 +58,34 @@ class FlatIndex(BaseIndex):
             xs: Vectors to add
             ids: Optional vector IDs (ignored in flat index)
         """
+        if ids is not None and len(ids) != len(xs):
+            raise ValueError("Length of ids must match number of vectors")
+
         x = mx.array(xs, dtype=mx.float32)
         if x.shape[1] != self.d:
             raise ValueError(f"Data dimension {x.shape[1]} does not match index dimension {self.d}")
-            
+
+        start = self.ntotal
+        n_new = int(x.shape[0])
+        if ids is not None:
+            id_arr = mx.array(ids, dtype=mx.int64)
+            for offset, val in enumerate(ids):
+                self._id_to_row[int(val)] = start + offset
+        else:
+            id_arr = mx.arange(start, start + n_new, dtype=mx.int64)
+            for offset in range(n_new):
+                self._id_to_row[start + offset] = start + offset
+
         if self._vectors is None:
             self._vectors = x
+            self._ids = id_arr
         else:
-            self._vectors = mx.concatenate([self._vectors, x])
-        self.ntotal = len(self._vectors)
+            self._vectors = mx.concatenate([self._vectors, x], axis=0)
+            self._ids = mx.concatenate([self._ids, id_arr], axis=0)  # type: ignore[arg-type]
+
+        self.ntotal = int(self._vectors.shape[0])
+        mx.eval(self._vectors)
+        mx.eval(self._ids)
         
     def search(self, xs: List[List[float]], k: int) -> SearchResult:
         """Search for nearest neighbors.
@@ -77,7 +97,7 @@ class FlatIndex(BaseIndex):
         Returns:
             SearchResult containing distances and labels
         """
-        if self._vectors is None:
+        if self._vectors is None or self._ids is None:
             raise RuntimeError("Index is empty")
             
         x = mx.array(xs, dtype=mx.float32)
@@ -114,11 +134,11 @@ class FlatIndex(BaseIndex):
             distances = mx.negative(sims)
             vals, idx = topk_smallest_axis1(distances, k)
         else:
-            # Fallback to L2
             distances = pairwise_L2sqr(x, self._vectors)
             vals, idx = topk_smallest_axis1(distances, k)
 
-        return vals, idx
+        selected_ids = mx.take(self._ids, idx, axis=0)
+        return SearchResult(distances=vals, indices=selected_ids)
         
     def xb(self) -> List[List[float]]:
         """Get stored vectors.
@@ -129,6 +149,33 @@ class FlatIndex(BaseIndex):
         if self._vectors is None:
             return mx.zeros((0, self.d), dtype=mx.float32)
         return self._vectors
-    @property
-    def metric_type(self) -> MetricType:
-        return self._metric_type
+
+    def reconstruct(self, key: int) -> mx.array:
+        """Reconstruct the stored vector corresponding to the given ID."""
+        if self._vectors is None or self._ids is None:
+            raise RuntimeError("Index is empty")
+        if key not in self._id_to_row:
+            raise ValueError(f"Unknown key {key}")
+        return self._vectors[self._id_to_row[key]]
+
+    def reset(self) -> None:
+        super().reset()
+        self._vectors = None
+        self._ids = None
+        self._id_to_row.clear()
+        self.is_trained = True
+
+    def save_to_file(self, filename: str) -> None:
+        if self._vectors is None or self._ids is None:
+            raise RuntimeError("Index is empty")
+        mx.save(self._vectors, filename + "_xb")
+        mx.save(self._ids, filename + "_ids")
+
+    def clone(self) -> "FlatIndex":
+        new_index = FlatIndex(self.d, self.metric_type)
+        if self._vectors is not None and self._ids is not None:
+            new_index._vectors = mx.copy(self._vectors)
+            new_index._ids = mx.copy(self._ids)
+            new_index.ntotal = int(self._vectors.shape[0])
+            new_index._id_to_row = self._id_to_row.copy()
+        return new_index

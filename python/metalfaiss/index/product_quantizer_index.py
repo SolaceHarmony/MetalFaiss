@@ -28,8 +28,8 @@ class ProductQuantizerIndex(BaseIndex):
             nbits: Number of bits per subquantizer index
             metric_type: Distance metric to use
         """
-        super().__init__(d)
-        self._metric_type = metric_type
+        super().__init__(d, metric=metric_type)
+        self.metric_type = metric_type
         self.pq = ProductQuantizer(d, M, nbits)
         self._codes = None
         

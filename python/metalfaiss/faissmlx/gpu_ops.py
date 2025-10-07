@@ -16,14 +16,9 @@ from typing import List, Tuple, Optional
 from enum import Enum
 from dataclasses import dataclass
 from .ops import Device
-from .device_guard import require_gpu
 
-# Graceful compile decorator if available
-try:
-    compile_fn = mx.compile  # type: ignore[attr-defined]
-except Exception:  # pragma: no cover
-    def compile_fn(f):
-        return f
+# Compile decorator helper
+compile_fn = mx.compile  # type: ignore[attr-defined]
 
 @dataclass
 class GpuResources:
@@ -90,13 +85,11 @@ def matmul(a: mx.array, b: mx.array) -> mx.array:
     When the kernel path is preferred (e.g., for large tiles), call the tiled
     GEMMs in `faissmlx/kernels/gemm_kernels.py`.
     """
-    require_gpu("matmul")
     return mx.matmul(a, b)
 
 @compile_fn
 def l2_distances(x: mx.array, y: mx.array) -> mx.array:
     """L2 distances: (a-b)^2 = a^2 + b^2 - 2ab (full matrix)."""
-    require_gpu("l2_distances")
     xx = mx.sum(mx.square(x), axis=1, keepdims=True)
     yy = mx.sum(mx.square(y), axis=1)
     xy = matmul(x, mx.transpose(y))
@@ -148,7 +141,6 @@ def cosine_distances(x: mx.array, y: mx.array) -> mx.array:
         Distance matrix (n, m) on GPU
     """
     # Normalize and compute dot products efficiently
-    require_gpu("cosine_distances")
     x_norm = mx.sqrt(mx.sum(mx.square(x), axis=1, keepdims=True))
     y_norm = mx.sqrt(mx.sum(mx.square(y), axis=1, keepdims=True))
     x = mx.divide(x, x_norm)
@@ -169,7 +161,6 @@ def hamming_distances(x: mx.array, y: mx.array) -> mx.array:
     Returns:
         Distance matrix (n, m) of uint32 on GPU
     """
-    require_gpu("hamming_distances")
     # Lookup table for Hamming weight (reuse from index.binary_index if available)
     try:
         from ..index.binary_index import HAMMING_TABLE as table  # type: ignore
@@ -184,19 +175,16 @@ def hamming_distances(x: mx.array, y: mx.array) -> mx.array:
 @compile_fn
 def binary_and(x: mx.array, y: mx.array) -> mx.array:
     """GPU-optimized binary AND."""
-    require_gpu("binary_and")
     return mx.bitwise_and(x, y)
 
 @compile_fn
 def binary_or(x: mx.array, y: mx.array) -> mx.array:
     """GPU-optimized binary OR."""
-    require_gpu("binary_or")
     return mx.bitwise_or(x, y)
 
 @compile_fn
 def binary_xor(x: mx.array, y: mx.array) -> mx.array:
     """GPU-optimized binary XOR."""
-    require_gpu("binary_xor")
     return mx.bitwise_xor(x, y)
 
 @compile_fn
@@ -209,7 +197,6 @@ def popcount(x: mx.array) -> mx.array:
     Returns:
         Array with same shape containing bit counts
     """
-    require_gpu("popcount")
     table = mx.array([bin(i).count('1') for i in range(256)], dtype=mx.uint8)
     return table[x]
 

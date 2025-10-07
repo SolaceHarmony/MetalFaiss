@@ -12,7 +12,7 @@ class IVFScalarQuantizerIndex(BaseIndex):
         self._d = 0  # Will be set from index_pointer
         self._nlist = 0
         self._nprobe = 1
-        self._metric_type = None
+        self.metric_type = MetricType.L2
         
     def __del__(self):
         if hasattr(self, '_index_pointer') and self._index_pointer is not None:
@@ -43,7 +43,7 @@ class IVFScalarQuantizerIndex(BaseIndex):
         index = cls(index_pointer=index_pointer, quantizer=quantizer)
         index._d = d
         index._nlist = nlist
-        index._metric_type = metric_type
+        index.metric_type = metric_type
         return index
 
     @property

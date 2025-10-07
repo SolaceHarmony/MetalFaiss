@@ -16,23 +16,13 @@ Operations are organized into categories:
 import mlx.core as mx
 from typing import List, Tuple, Union, Optional
 from enum import Enum
-from .device_guard import require_gpu
 
-# Compile wrapper: use mx.compile when available and define once at import time
-try:
-    compile_fn = mx.compile  # type: ignore[attr-defined]
-except Exception:  # pragma: no cover
-    def compile_fn(f):
-        return f
+# Compile wrapper: use mx.compile when available
+compile_fn = mx.compile  # type: ignore[attr-defined]
 
 class Device(Enum):
-    """Logical device selector.
+    """Logical device selector (GPU only)."""
 
-    DEFAULT: use MLX default device (typically Metal GPU when available).
-    CPU/GPU: advisory hints; see `to_device` below.
-    """
-    DEFAULT = "default"
-    CPU = "cpu"
     GPU = "gpu"
 
 # Array Creation and Manipulation Ops
@@ -141,7 +131,6 @@ def max(
 @compile_fn
 def matmul(a: mx.array, b: mx.array) -> mx.array:
     """Matrix multiplication (GPU‑only)."""
-    require_gpu("ops.matmul")
     return mx.matmul(a, b)
 
 def transpose(x: mx.array, axes: Optional[Tuple[int, ...]] = None) -> mx.array:
@@ -161,7 +150,6 @@ def l2_distances(x: mx.array, y: mx.array) -> mx.array:
     Returns:
         Distance matrix (n, m)
     """
-    require_gpu("ops.l2_distances")
     # Compute (a-b)^2 = a^2 + b^2 - 2ab (pure MLX ops)
     xx = sum(mx.square(x), axis=1, keepdims=True)  # (n, 1)
     yy = sum(mx.square(y), axis=1)                 # (m,)
@@ -180,7 +168,6 @@ def cosine_distances(x: mx.array, y: mx.array) -> mx.array:
     Returns:
         Distance matrix (n, m)
     """
-    require_gpu("ops.cosine_distances")
     # Normalize vectors (no python ops)
     x_norm = mx.sqrt(sum(mx.square(x), axis=1, keepdims=True))
     y_norm = mx.sqrt(sum(mx.square(y), axis=1, keepdims=True))
@@ -201,7 +188,6 @@ def hamming_distances(x: mx.array, y: mx.array) -> mx.array:
     Returns:
         Distance matrix (n, m) of uint32
     """
-    require_gpu("ops.hamming_distances")
     # Create lookup table for Hamming weight using SWAR (pure MLX)
     v = mx.arange(256, dtype=mx.uint8)
     v = mx.subtract(v, mx.bitwise_and(mx.right_shift(v, mx.array(1, dtype=mx.uint8)), mx.array(0x55, dtype=mx.uint8)))
@@ -246,7 +232,6 @@ def popcount(x: mx.array) -> mx.array:
     Returns:
         Array with same shape containing bit counts
     """
-    require_gpu("ops.popcount")
     # SWAR table for uint8
     v = mx.arange(256, dtype=mx.uint8)
     v = mx.subtract(v, mx.bitwise_and(mx.right_shift(v, mx.array(1, dtype=mx.uint8)), mx.array(0x55, dtype=mx.uint8)))
@@ -257,26 +242,14 @@ def popcount(x: mx.array) -> mx.array:
 # Device Management
 
 def to_device(x: mx.array, device: Device) -> mx.array:
-    """Move array to specified device.
-    
-    Args:
-        x: Input array
-        device: Target device
-        
-    Returns:
-        Array on target device
-    """
-    try:
-        if device == Device.GPU:
-            # Hints MLX to use GPU for subsequent ops
-            if hasattr(mx, 'set_default_device') and hasattr(mx, 'gpu'):
-                mx.set_default_device(mx.gpu)
-        elif device == Device.CPU:
-            if hasattr(mx, 'set_default_device') and hasattr(mx, 'cpu'):
-                mx.set_default_device(mx.cpu)
-        # DEFAULT: leave as-is
-    except Exception:
-        pass
+    """Ensure arrays execute on the GPU."""
+
+    if device != Device.GPU:
+        raise ValueError("MetalFaiss operates on GPU only")
+    if not hasattr(mx, "gpu"):
+        raise RuntimeError("MLX build does not expose mx.gpu; MetalFaiss requires GPU support")
+    if hasattr(mx, "set_default_device"):
+        mx.set_default_device(mx.gpu)
     return x
 
 def get_device(x: mx.array) -> Device:
@@ -288,10 +261,8 @@ def get_device(x: mx.array) -> Device:
     Returns:
         Device containing array
     """
-    try:
-        d = str(mx.default_device()).lower()
-        if 'gpu' in d or 'metal' in d:
-            return Device.GPU
-        return Device.CPU
-    except Exception:
-        return Device.DEFAULT
+    d = str(mx.default_device()).lower()
+    if "gpu" in d or "metal" in d:
+        return Device.GPU
+    # If MLX reported something else, treat it as a configuration error.
+    raise RuntimeError("MetalFaiss requires MLX Metal GPU execution")

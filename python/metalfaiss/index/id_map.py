@@ -84,16 +84,21 @@ class IDMap(BaseIndex):
         """
         # Search in base index
         result = self.index.search(xs, k)
-        
-        # Translate internal IDs to external IDs
-        translated_labels = [
-            [self.id_map[idx] if idx >= 0 else -1 for idx in query_labels]
-            for query_labels in result.labels
-        ]
-        
+
+        if not self.id_map:
+            return SearchResult(distances=result.distances, indices=result.indices)
+
+        lookup = mx.array(self.id_map, dtype=mx.int64)
+        indices = result.indices.astype(mx.int64)
+        valid_mask = mx.greater_equal(indices, mx.array(0, dtype=indices.dtype))
+        safe_idx = mx.where(valid_mask, indices, mx.zeros_like(indices))
+        translated = mx.take(lookup, safe_idx, axis=0)
+        neg_ones = mx.add(mx.zeros_like(translated), mx.array(-1, dtype=translated.dtype))
+        translated = mx.where(valid_mask, translated, neg_ones)
+
         return SearchResult(
             distances=result.distances,
-            labels=translated_labels
+            indices=translated.astype(result.indices.dtype)
         )
         
     def range_search(
@@ -112,17 +117,25 @@ class IDMap(BaseIndex):
         """
         # Range search in base index
         result = self.index.range_search(xs, radius)
-        
-        # Translate internal IDs to external IDs
-        translated_labels = [
-            [self.id_map[idx] if idx >= 0 else -1 for idx in query_labels]
-            for query_labels in result.labels
-        ]
-        
+
+        if not self.id_map:
+            return result
+
+        lookup = mx.array(self.id_map, dtype=mx.int64)
+        translated_indices = []
+        for idx_array in result.indices:
+            idxs = idx_array.astype(mx.int64)
+            valid_mask = mx.greater_equal(idxs, mx.array(0, dtype=idxs.dtype))
+            safe_idx = mx.where(valid_mask, idxs, mx.zeros_like(idxs))
+            translated = mx.take(lookup, safe_idx, axis=0)
+            neg_ones = mx.add(mx.zeros_like(translated), mx.array(-1, dtype=translated.dtype))
+            translated = mx.where(valid_mask, translated, neg_ones)
+            translated_indices.append(translated.astype(idx_array.dtype))
+
         return SearchRangeResult(
             lims=result.lims,
             distances=result.distances,
-            labels=translated_labels
+            indices=translated_indices
         )
         
     def remove_ids(self, sel: Any) -> int:

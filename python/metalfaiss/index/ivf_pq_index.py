@@ -19,7 +19,6 @@ from .product_quantizer import ProductQuantizer
 from ..types.metric_type import MetricType
 from ..utils.search_result import SearchResult
 from ..utils.sorting import mlx_topk
-from ..faissmlx.device_guard import require_gpu
 
 
 class IVFPQIndex(BaseIndex):
@@ -78,7 +77,6 @@ class IVFPQIndex(BaseIndex):
         return cent
 
     def train(self, xs: List[List[float]]) -> None:
-        require_gpu("IVFPQIndex.train")
         if not xs:
             raise ValueError("Empty training data")
         x = mx.array(xs, dtype=mx.float32)
@@ -99,7 +97,6 @@ class IVFPQIndex(BaseIndex):
         self.is_trained = True
 
     def add(self, xs: List[List[float]], ids: Optional[List[int]] = None) -> None:
-        require_gpu("IVFPQIndex.add")
         if not self.is_trained:
             raise RuntimeError("Train index before adding vectors")
         x = mx.array(xs, dtype=mx.float32)
@@ -131,7 +128,6 @@ class IVFPQIndex(BaseIndex):
         return lut
 
     def search(self, xs: List[List[float]], k: int) -> SearchResult:
-        require_gpu("IVFPQIndex.search")
         if not self.is_trained:
             raise RuntimeError("Train index before search")
         xq = mx.array(xs, dtype=mx.float32)

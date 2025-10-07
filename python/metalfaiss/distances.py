@@ -18,15 +18,10 @@ function that computes the full distance matrix between a query set and a databa
 import math
 
 import mlx.core as mx
-from .faissmlx.device_guard import require_gpu
 
 # Compile wrapper: MX compile works best when functions are defined once
 # at import time and reused (avoid per-call creation/destruction of callables).
-try:
-    compile_fn = mx.compile  # type: ignore[attr-defined]
-except Exception:  # pragma: no cover
-    def compile_fn(f):
-        return f
+compile_fn = mx.compile  # type: ignore[attr-defined]
 
 ###############################################################################
 # Basic Distance Functions
@@ -44,7 +39,6 @@ def fvec_L2sqr(x: mx.array, y: mx.array) -> mx.array:
     Returns:
         MLX scalar (0-d array) with the squared L2 distance.
     """
-    require_gpu("fvec_L2sqr")
     diff = mx.subtract(x, y)
     # mx.dot returns an MLX scalar (0-d array); keep it on device.
     return mx.dot(diff, diff)
@@ -62,7 +56,6 @@ def fvec_inner_product(x: mx.array, y: mx.array) -> mx.array:
     Returns:
         MLX scalar (0-d array) with the inner product.
     """
-    require_gpu("fvec_inner_product")
     return mx.dot(x, y)
 
 
@@ -78,7 +71,6 @@ def fvec_L1(x: mx.array, y: mx.array) -> mx.array:
     Returns:
         MLX scalar (0-d array) with the L1 distance.
     """
-    require_gpu("fvec_L1")
     return mx.sum(mx.abs(mx.subtract(x, y)))
 
 
@@ -94,7 +86,6 @@ def fvec_Linf(x: mx.array, y: mx.array) -> mx.array:
     Returns:
         MLX scalar (0-d array) with the L∞ distance.
     """
-    require_gpu("fvec_Linf")
     return mx.max(mx.abs(mx.subtract(x, y)))
 
 
@@ -105,7 +96,6 @@ def fvec_Linf(x: mx.array, y: mx.array) -> mx.array:
 @compile_fn
 def fvec_canberra(x: mx.array, y: mx.array) -> mx.array:
     """Compute Canberra distance between two vectors."""
-    require_gpu("fvec_canberra")
     num = mx.abs(mx.subtract(x, y))
     den = mx.add(mx.abs(x), mx.abs(y))
     den = mx.where(mx.greater(den, mx.zeros_like(den)), den, mx.ones_like(den))
@@ -115,7 +105,6 @@ def fvec_canberra(x: mx.array, y: mx.array) -> mx.array:
 @compile_fn
 def fvec_bray_curtis(x: mx.array, y: mx.array) -> mx.array:
     """Compute Bray-Curtis distance between two vectors."""
-    require_gpu("fvec_bray_curtis")
     num = mx.sum(mx.abs(mx.subtract(x, y)))
     den = mx.sum(mx.abs(mx.add(x, y)))
     return mx.divide(num, mx.maximum(den, mx.array(1e-20, dtype=num.dtype)))
@@ -124,7 +113,6 @@ def fvec_bray_curtis(x: mx.array, y: mx.array) -> mx.array:
 @compile_fn
 def fvec_jensen_shannon(x: mx.array, y: mx.array) -> mx.array:
     """Compute Jensen-Shannon divergence (symmetric KL) between two histograms."""
-    require_gpu("fvec_jensen_shannon")
     m = mx.multiply(mx.array(0.5, dtype=x.dtype), mx.add(x, y))
     # Avoid log(0); 0 * log(0) treated as 0
     tiny = mx.array(1e-20, dtype=x.dtype)
@@ -159,7 +147,6 @@ def pairwise_L2sqr(xq: mx.array, xb: mx.array) -> mx.array:
         MLX array of squared distances with shape (nq, nb).
     """
     # Compute squared norms for queries and database vectors.
-    require_gpu("pairwise_L2sqr")
     norms_q = mx.sum(mx.square(xq), axis=1, keepdims=True)  # shape: (nq, 1)
     norms_b = mx.sum(mx.square(xb), axis=1, keepdims=True)  # shape: (nb, 1)
     
@@ -184,7 +171,6 @@ def pairwise_extra_distances(xq: mx.array, xb: mx.array, metric: str) -> mx.arra
     Returns:
         (nq, nb) distances
     """
-    require_gpu("pairwise_extra_distances")
     nq, d = xq.shape
     nb = xb.shape[0]
     if metric == "Canberra":
@@ -228,7 +214,6 @@ def fvec_norms_L2(x: mx.array) -> mx.array:
     Returns:
         MLX array of shape (n,) with the L2 norm of each vector.
     """
-    require_gpu("fvec_norms_L2")
     return mx.sqrt(mx.sum(mx.square(x), axis=1))
 
 
@@ -243,7 +228,6 @@ def fvec_norms_L2sqr(x: mx.array) -> mx.array:
     Returns:
         MLX array of shape (n,) with the squared L2 norm of each vector.
     """
-    require_gpu("fvec_norms_L2sqr")
     return mx.sum(mx.square(x), axis=1)
 
 
@@ -258,7 +242,6 @@ def fvec_renorm_L2(x: mx.array) -> mx.array:
     Returns:
         MLX array of shape (n, d) where each row has been normalized to unit norm.
     """
-    require_gpu("fvec_renorm_L2")
     norms = mx.sqrt(mx.sum(mx.square(x), axis=1, keepdims=True))
     norms = mx.where(mx.greater(norms, mx.zeros_like(norms)), norms, mx.ones_like(norms))
     return mx.divide(x, norms)
@@ -281,7 +264,6 @@ def fvec_inner_products_ny(x: mx.array, y: mx.array) -> mx.array:
         MLX array of shape (ny,) containing the inner products.
     """
     # Reshape x to (d,1) so that mx.matmul yields shape (ny,1), then reshape.
-    require_gpu("fvec_inner_products_ny")
     return mx.matmul(y, x.reshape((-1, 1))).reshape(-1)
 
 
@@ -297,7 +279,6 @@ def fvec_L2sqr_ny(x: mx.array, y: mx.array) -> mx.array:
     Returns:
         MLX array of shape (ny,) with the squared distances.
     """
-    require_gpu("fvec_L2sqr_ny")
     diff = mx.subtract(y, x)
     return mx.sum(mx.square(diff), axis=1)
 
@@ -305,14 +286,12 @@ def fvec_L2sqr_ny(x: mx.array, y: mx.array) -> mx.array:
 @compile_fn
 def pairwise_L1(xq: mx.array, xb: mx.array) -> mx.array:
     """Pairwise L1 distances between rows of xq (nq,d) and xb (nb,d)."""
-    require_gpu("pairwise_L1")
     return mx.sum(mx.abs(mx.subtract(xq[:, None, :], xb[None, :, :])), axis=2)
 
 
 @compile_fn
 def pairwise_Linf(xq: mx.array, xb: mx.array) -> mx.array:
     """Pairwise Linf distances between rows of xq (nq,d) and xb (nb,d)."""
-    require_gpu("pairwise_Linf")
     return mx.max(mx.abs(mx.subtract(xq[:, None, :], xb[None, :, :])), axis=2)
 
 
@@ -322,7 +301,6 @@ def pairwise_jaccard(xq: mx.array, xb: mx.array) -> mx.array:
 
     J(x,y) = 1 - sum(min(x,y)) / sum(max(x,y))
     """
-    require_gpu("pairwise_jaccard")
     minimum = mx.minimum(xq[:, None, :], xb[None, :, :])
     maximum = mx.maximum(xq[:, None, :], xb[None, :, :])
     num = mx.sum(minimum, axis=2)
