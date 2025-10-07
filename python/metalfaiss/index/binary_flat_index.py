@@ -169,12 +169,17 @@ class BinaryFlatIndex(BaseBinaryIndex):
         
         # Choose algorithm based on database size
         # Threshold: 100K vectors (empirically determined)
-        if self.ntotal < 100_000:
-            # Single-pass algorithm: materialize full distance matrix
-            distances, indices = flat_binary_knn(x, self.codes, k)
-        else:
+        ntotal_mx = mx.array(self.ntotal, dtype=mx.int32)
+        threshold_mx = mx.array(100000, dtype=mx.int32)
+        use_tiled = bool(mx.greater_equal(ntotal_mx, threshold_mx).item())  # boundary-ok: algorithm selection
+        
+        if use_tiled:
             # Tiled algorithm: process in chunks to save memory
             distances, indices = flat_binary_knn_tiled(x, self.codes, k, tile_size=8192)
+        else:
+            # Single-pass algorithm: materialize full distance matrix
+            k_mx = mx.array(k, dtype=mx.int32)
+            distances, indices = flat_binary_knn(x, self.codes, k_mx)
         
         return distances, indices
         

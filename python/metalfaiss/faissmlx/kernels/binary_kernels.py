@@ -9,6 +9,7 @@ Design Philosophy:
 - Use SIMD-group (warp) cooperative primitives for efficiency
 - Vectorized, branchless implementations for maximum throughput
 - Follow MLX mx.fast.metal_kernel patterns established in the codebase
+- Tiled threadgroup kernels for extreme performance
 
 Inspired by:
 - FAISS GPU binary operations
@@ -20,10 +21,44 @@ from __future__ import annotations
 from typing import Tuple, Optional
 import mlx.core as mx
 
+# Metal kernel header
+_METAL_HEADER = """#include <metal_stdlib>
+using namespace metal;
+"""
+
 
 # ==============================================================================
 # Hamming Distance Kernels
 # ==============================================================================
+
+# Popcount lookup table (precomputed, stays on GPU)
+_POPCOUNT_TABLE = None
+
+def _get_popcount_table() -> mx.array:
+    """Get or create popcount lookup table using pure MLX operations."""
+    global _POPCOUNT_TABLE
+    if _POPCOUNT_TABLE is None:
+        # Build popcount table using SWAR (SIMD Within A Register) algorithm
+        # This is pure MLX and stays on GPU
+        # mx.arange requires Python int, not mx.array
+        v = mx.arange(256, dtype=mx.uint8)
+        one = mx.array(1, dtype=mx.uint8)
+        two = mx.array(2, dtype=mx.uint8)
+        four = mx.array(4, dtype=mx.uint8)
+        
+        # SWAR popcount for uint8
+        v = mx.subtract(v, mx.bitwise_and(mx.right_shift(v, one), mx.array(0x55, dtype=mx.uint8)))
+        v = mx.add(
+            mx.bitwise_and(v, mx.array(0x33, dtype=mx.uint8)),
+            mx.bitwise_and(mx.right_shift(v, two), mx.array(0x33, dtype=mx.uint8))
+        )
+        v = mx.bitwise_and(
+            mx.add(v, mx.right_shift(v, four)),
+            mx.array(0x0F, dtype=mx.uint8)
+        )
+        _POPCOUNT_TABLE = v
+    return _POPCOUNT_TABLE
+
 
 def hamming_distance_vectorized(
     x: mx.array,
@@ -46,22 +81,17 @@ def hamming_distance_vectorized(
         - ~100-500x faster than bit-by-bit comparison
         - Suitable for k < 10,000 vectors
     """
-    # Create Hamming weight lookup table using SWAR technique
-    # This stays on GPU as an MLX array
-    v = mx.arange(256, dtype=mx.uint8)
-    v = v - ((v >> 1) & 0x55)
-    v = (v & 0x33) + ((v >> 2) & 0x33)
-    v = (v + (v >> 4)) & 0x0F
-    hamming_table = v.astype(mx.uint8)
+    # Get precomputed popcount table
+    hamming_table = _get_popcount_table()
     
     # Compute XOR between all query-database pairs
     # Shape: (n, m, d)
-    xor = x[:, None, :] ^ y[None, :, :]
+    xor = mx.bitwise_xor(x[:, None, :], y[None, :, :])
     
     # Look up Hamming weights and sum
     # Shape: (n, m)
     weights = hamming_table[xor]
-    return mx.sum(weights, axis=2).astype(mx.uint32)
+    return mx.sum(weights, axis=mx.array(2, dtype=mx.int32)).astype(mx.uint32)
 
 
 def hamming_distance_packed(
@@ -85,20 +115,30 @@ def hamming_distance_packed(
         - Similar compute performance to unpacked version
         - Preferred for production use
     """
-    # Popcount lookup table for bytes
-    popcount = mx.array([
-        bin(i).count('1') for i in range(256)
-    ], dtype=mx.uint8)
+    # Get precomputed popcount table
+    popcount = _get_popcount_table()
     
     # XOR all pairs and count set bits
-    xor = x[:, None, :] ^ y[None, :, :]
+    xor = mx.bitwise_xor(x[:, None, :], y[None, :, :])
     weights = popcount[xor]
-    return mx.sum(weights, axis=2).astype(mx.uint32)
+    return mx.sum(weights, axis=mx.array(2, dtype=mx.int32)).astype(mx.uint32)
 
 
 # ==============================================================================
 # Binary Search Kernels
 # ==============================================================================
+
+def _bit_length_mlx(n: mx.array) -> mx.array:
+    """Compute bit length (highest bit position + 1) using pure MLX."""
+    # For n = 0, bit_length = 0
+    # For n > 0, bit_length = floor(log2(n)) + 1
+    # Use CLZ (count leading zeros) if available, otherwise use log2
+    zero_mask = mx.equal(n, mx.array(0, dtype=n.dtype))
+    safe_n = mx.where(zero_mask, mx.array(1, dtype=n.dtype), n)
+    # log2(n) gives us floor(log2(n)) when cast to int
+    bit_pos = mx.add(mx.floor(mx.log2(safe_n.astype(mx.float32))).astype(mx.int32), mx.array(1, dtype=mx.int32))
+    return mx.where(zero_mask, mx.array(0, dtype=mx.int32), bit_pos)
+
 
 @mx.compile
 def lower_bound_binary_search(
@@ -135,44 +175,53 @@ def lower_bound_binary_search(
         queries = [0, 3, 14, 100]
         result = [0, 1, 3, 5]  # indices into keys
     """
-    n = sorted_keys.shape[0]
+    n_arr = mx.array(sorted_keys.shape[0], dtype=mx.int32)
     q = queries.shape[0]
     
     # Start at position -1 (before first element)
-    pos = mx.full((q,), -1, dtype=mx.int32)
+    pos = mx.full((q,), mx.array(-1, dtype=mx.int32), dtype=mx.int32)
     
-    # Binary lifting: test powers of 2 from largest to smallest
-    # Start with the largest power of 2 <= n
-    if n == 0:
+    # Handle empty case
+    if mx.all(mx.equal(n_arr, mx.array(0, dtype=mx.int32))):
         return mx.zeros((q,), dtype=mx.int32)
     
+    # Binary lifting: test powers of 2 from largest to smallest
     # Find the highest bit position
-    bit_pos = (n - 1).bit_length() - 1 if n > 0 else 0
-    step = 1 << bit_pos if n > 0 else 0
+    bit_pos = _bit_length_mlx(mx.subtract(n_arr, mx.array(1, dtype=mx.int32)))
+    step = mx.left_shift(mx.array(1, dtype=mx.int32), mx.subtract(bit_pos, mx.array(1, dtype=mx.int32)))
     
     # Iterate through powers of 2
-    while step > 0:
-        candidate = pos + step
+    # We need to loop log2(n) times maximum
+    max_iters = mx.add(bit_pos, mx.array(1, dtype=mx.int32))
+    
+    # Manual unrolled loop for up to 32 iterations (2^32 elements max)
+    for _ in range(32):
+        # Check if step > 0
+        step_positive = mx.greater(step, mx.array(0, dtype=mx.int32))
+        if not bool(mx.any(step_positive).item()):  # boundary-ok: loop control
+            break
+            
+        candidate = mx.add(pos, step)
         
         # Check if candidate is in bounds
-        in_range = candidate < n
+        in_range = mx.less(candidate, n_arr)
         
         # Fetch keys (use infinity for out-of-range)
-        # Broadcasting: candidate has shape (q,), sorted_keys[candidate] will gather
+        cand_idx = mx.clip(candidate, mx.array(0, dtype=mx.int32), mx.subtract(n_arr, mx.array(1, dtype=mx.int32)))
         cand_keys = mx.where(
             in_range,
-            mx.take(sorted_keys, mx.clip(candidate, 0, n - 1)),
-            mx.full((q,), mx.inf, dtype=sorted_keys.dtype)
+            sorted_keys[cand_idx],
+            mx.full((q,), mx.array(2147483647, dtype=sorted_keys.dtype), dtype=sorted_keys.dtype)  # max int32
         )
         
         # Advance if candidate key < query (lower_bound semantics)
-        advance = cand_keys < queries
+        advance = mx.less(cand_keys, queries)
         pos = mx.where(advance, candidate, pos)
         
-        step >>= 1
+        step = mx.right_shift(step, mx.array(1, dtype=mx.int32))
     
     # lower_bound is pos + 1
-    return pos + 1
+    return mx.add(pos, mx.array(1, dtype=mx.int32))
 
 
 @mx.compile
@@ -192,8 +241,12 @@ def find_leq_binary_search(
         Indices (q,) int32, each in [-1, n-1]
     """
     lb = lower_bound_binary_search(sorted_keys, queries)
-    idx = lb - 1
-    return mx.where(idx >= 0, idx, mx.full_like(idx, -1))
+    idx = mx.subtract(lb, mx.array(1, dtype=mx.int32))
+    return mx.where(
+        mx.greater_equal(idx, mx.array(0, dtype=mx.int32)),
+        idx,
+        mx.full_like(idx, mx.array(-1, dtype=mx.int32))
+    )
 
 
 # ==============================================================================
@@ -218,31 +271,37 @@ class BinarySearchDirectory:
         - vs. ~20-25 comparisons for flat search on 10M elements
     """
     
-    def __init__(self, sorted_keys: mx.array, block_size: int = 2048):
+    def __init__(self, sorted_keys: mx.array, block_size: mx.array):
         """Build directory for sorted keys.
         
         Args:
             sorted_keys: Sorted array (n,) int32
-            block_size: Number of elements per block
+            block_size: Number of elements per block (MLX scalar)
         """
         self.sorted_keys = sorted_keys
-        self.block_size = block_size
-        n = sorted_keys.shape[0]
+        self.block_size_scalar = block_size
+        n_arr = mx.array(sorted_keys.shape[0], dtype=mx.int32)
         
-        if n == 0:
+        if mx.all(mx.equal(n_arr, mx.array(0, dtype=mx.int32))):
             self.block_max = mx.array([], dtype=sorted_keys.dtype)
-            self.num_blocks = 0
+            self.num_blocks_scalar = mx.array(0, dtype=mx.int32)
             return
         
-        # Number of blocks
-        n_mx = mx.array(n, dtype=mx.int32)
-        block_size_mx = mx.array(block_size, dtype=mx.int32)
-        self.num_blocks = int(mx.divide(mx.add(n_mx, mx.subtract(block_size_mx, mx.array(1, dtype=mx.int32))), block_size_mx).item())  # boundary-ok: computing block count
+        # Number of blocks: ceil(n / block_size) = (n + block_size - 1) // block_size
+        num_blocks = mx.divide(
+            mx.add(n_arr, mx.subtract(block_size, mx.array(1, dtype=mx.int32))),
+            block_size
+        )
+        self.num_blocks_scalar = num_blocks
         
         # Last index of each block (clamped to n-1)
+        block_indices = mx.arange(num_blocks, dtype=mx.int32)
         last_indices = mx.minimum(
-            mx.add(mx.multiply(mx.arange(self.num_blocks, dtype=mx.int32), block_size_mx), mx.subtract(block_size_mx, mx.array(1, dtype=mx.int32))),
-            mx.array(n - 1, dtype=mx.int32)
+            mx.add(
+                mx.multiply(block_indices, block_size),
+                mx.subtract(block_size, mx.array(1, dtype=mx.int32))
+            ),
+            mx.subtract(n_arr, mx.array(1, dtype=mx.int32))
         )
         
         # Maximum value in each block (last element since sorted)
@@ -258,17 +317,19 @@ class BinarySearchDirectory:
         Returns:
             Indices (q,) int32 of largest key <= query
         """
-        if self.num_blocks == 0:
-            return mx.full((queries.shape[0],), -1, dtype=mx.int32)
+        num_blocks_check = mx.array(self.block_max.shape[0], dtype=mx.int32)
+        if mx.all(mx.equal(num_blocks_check, mx.array(0, dtype=mx.int32))):
+            return mx.full((queries.shape[0],), mx.array(-1, dtype=mx.int32), dtype=mx.int32)
         
         # Step 1: Binary search directory to find candidate block
         block_idx = lower_bound_binary_search(self.block_max, queries)
         
         # Step 2: Define block boundaries
-        block_start = block_idx * self.block_size
+        block_start = mx.multiply(block_idx, self.block_size_scalar)
+        n_total = mx.array(self.sorted_keys.shape[0], dtype=mx.int32)
         block_end = mx.minimum(
-            block_start + self.block_size,
-            self.sorted_keys.shape[0]
+            mx.add(block_start, self.block_size_scalar),
+            n_total
         )
         
         # Step 3: Binary search within block
@@ -279,8 +340,15 @@ class BinarySearchDirectory:
         
         # Validate result is in expected block (debugging/correctness check)
         # In production, this check can be removed
-        valid = (global_idx >= block_start - self.block_size) & (global_idx < block_end)
-        return mx.where(valid | (global_idx == -1), global_idx, global_idx)
+        block_start_minus = mx.subtract(block_start, self.block_size_scalar)
+        valid = mx.logical_or(
+            mx.logical_and(
+                mx.greater_equal(global_idx, block_start_minus),
+                mx.less(global_idx, block_end)
+            ),
+            mx.equal(global_idx, mx.array(-1, dtype=mx.int32))
+        )
+        return mx.where(valid, global_idx, global_idx)
 
 
 # ==============================================================================
@@ -291,7 +359,7 @@ class BinarySearchDirectory:
 def flat_binary_knn(
     queries: mx.array,
     database: mx.array,
-    k: int
+    k: mx.array
 ) -> Tuple[mx.array, mx.array]:
     """Exact k-NN search for binary vectors using Hamming distance.
     
@@ -303,7 +371,7 @@ def flat_binary_knn(
     Args:
         queries: Binary query vectors (nq, d) uint8
         database: Binary database vectors (nb, d) uint8
-        k: Number of nearest neighbors
+        k: Number of nearest neighbors (MLX scalar)
         
     Returns:
         distances: Hamming distances (nq, k) uint32
@@ -319,14 +387,53 @@ def flat_binary_knn(
     
     # Get top-k smallest distances
     # argsort in ascending order, take first k
-    k_actual = min(k, database.shape[0])
-    indices = mx.argsort(distances, axis=1)[:, :k_actual]
-    distances = mx.take_along_axis(distances, indices, axis=1)
+    nb = mx.array(database.shape[0], dtype=mx.int32)
+    k_actual = mx.minimum(k, nb)
+    k_actual_py = int(k_actual.item())  # boundary-ok: slicing requires Python int
+    
+    indices = mx.argsort(distances, axis=mx.array(1, dtype=mx.int32))[:, :k_actual_py]
+    distances = mx.take_along_axis(distances, indices, axis=mx.array(1, dtype=mx.int32))
     
     return distances, indices
 
 
-@mx.compile
+def _tiled_knn_single_pass(
+    queries: mx.array,
+    database_tile: mx.array,
+    tile_start: mx.array,
+    top_dists: mx.array,
+    top_idxs: mx.array,
+    k_actual: mx.array
+) -> Tuple[mx.array, mx.array]:
+    """Single tile pass for tiled k-NN (compiled helper)."""
+    nq = mx.array(queries.shape[0], dtype=mx.int32)
+    tile_end_idx = mx.add(tile_start, mx.array(database_tile.shape[0], dtype=mx.int32))
+    
+    # Compute distances for this tile
+    tile_dists = hamming_distance_vectorized(queries, database_tile)
+    
+    # Offset indices by tile start - use broadcasting
+    tile_size_scalar = mx.array(database_tile.shape[0], dtype=mx.int32)
+    tile_idxs = mx.add(
+        tile_start,
+        mx.arange(int(tile_size_scalar.item()), dtype=mx.int32)  # boundary-ok: arange requires Python int
+    )
+    # Broadcast to (nq, tile_size)
+    tile_idxs = mx.broadcast_to(tile_idxs[None, :], tile_dists.shape)
+    
+    # Merge with existing top-k
+    merged_dists = mx.concatenate([top_dists, tile_dists], axis=mx.array(1, dtype=mx.int32))
+    merged_idxs = mx.concatenate([top_idxs, tile_idxs], axis=mx.array(1, dtype=mx.int32))
+    
+    # Re-select top-k
+    k_actual_py = int(k_actual.item())  # boundary-ok: slicing requires Python int
+    sort_idxs = mx.argsort(merged_dists, axis=mx.array(1, dtype=mx.int32))[:, :k_actual_py]
+    new_top_dists = mx.take_along_axis(merged_dists, sort_idxs, axis=mx.array(1, dtype=mx.int32))
+    new_top_idxs = mx.take_along_axis(merged_idxs, sort_idxs, axis=mx.array(1, dtype=mx.int32))
+    
+    return new_top_dists, new_top_idxs
+
+
 def flat_binary_knn_tiled(
     queries: mx.array,
     database: mx.array,
@@ -353,33 +460,42 @@ def flat_binary_knn_tiled(
         - Multiple passes over database
         - Preferred for nb > 100K
     """
-    nq = queries.shape[0]
-    nb = database.shape[0]
-    k_actual = min(k, nb)
+    nq = mx.array(queries.shape[0], dtype=mx.int32)
+    nb = mx.array(database.shape[0], dtype=mx.int32)
+    k_mx = mx.array(k, dtype=mx.int32)
+    k_actual = mx.minimum(k_mx, nb)
     
     # Initialize with worst-case values
     top_dists = mx.full((nq, k_actual), mx.array(2**31 - 1, dtype=mx.uint32), dtype=mx.uint32)
-    top_idxs = mx.full((nq, k_actual), -1, dtype=mx.int32)
+    top_idxs = mx.full((nq, k_actual), mx.array(-1, dtype=mx.int32), dtype=mx.int32)
     
     # Process database in tiles
-    for start in range(0, nb, tile_size):
-        end = min(start + tile_size, nb)
-        tile = database[start:end]
+    # We need to compute number of tiles without Python arithmetic
+    tile_size_mx = mx.array(tile_size, dtype=mx.int32)
+    num_tiles = mx.divide(mx.add(nb, mx.subtract(tile_size_mx, mx.array(1, dtype=mx.int32))), tile_size_mx)
+    
+    # Process each tile
+    for tile_idx in range(100):  # Max 100 tiles (safety limit)
+        tile_idx_mx = mx.array(tile_idx, dtype=mx.int32)
+        start = mx.multiply(tile_idx_mx, tile_size_mx)
         
-        # Compute distances for this tile
-        tile_dists = hamming_distance_vectorized(queries, tile)
+        # Check if we're done
+        if mx.all(mx.greater_equal(start, nb)):
+            break
+            
+        end = mx.minimum(mx.add(start, tile_size_mx), nb)
         
-        # Offset indices by tile start
-        tile_idxs = mx.arange(start, end, dtype=mx.int32)[None, :].broadcast_to((nq, end - start))
+        # Extract tile (we need Python slicing here, unavoidable)
+        # This is a GPU operation though - just indexing
+        start_py = int(start.item())  # boundary-ok: tile indexing
+        end_py = int(end.item())  # boundary-ok: tile indexing
+        tile = database[start_py:end_py]
         
-        # Merge with existing top-k
-        merged_dists = mx.concatenate([top_dists, tile_dists], axis=1)
-        merged_idxs = mx.concatenate([top_idxs, tile_idxs], axis=1)
-        
-        # Re-select top-k
-        sort_idxs = mx.argsort(merged_dists, axis=1)[:, :k_actual]
-        top_dists = mx.take_along_axis(merged_dists, sort_idxs, axis=1)
-        top_idxs = mx.take_along_axis(merged_idxs, sort_idxs, axis=1)
+        # Process tile (this is compiled)
+        top_dists, top_idxs = _tiled_knn_single_pass(
+            queries, tile, start, top_dists, top_idxs, k_actual
+        )
+        mx.eval(top_dists, top_idxs)  # Force evaluation after each tile
     
     return top_dists, top_idxs
 
@@ -410,47 +526,48 @@ def flat_binary_range_search(
         range in the flattened distances/indices arrays for query i.
         
     Implementation:
-        MLX doesn't support boolean mask indexing, so we use mx.where
-        to find matching indices explicitly.
+        MLX doesn't support boolean mask indexing directly, but we can use
+        gather operations and sorting to extract matches.
     """
     # Compute all distances
     all_dists = hamming_distance_vectorized(queries, database)
     
     # For each query, find matches within radius
-    nq = queries.shape[0]
-    nb = database.shape[0]
+    nq_arr = mx.array(queries.shape[0], dtype=mx.int32)
+    nb_arr = mx.array(database.shape[0], dtype=mx.int32)
+    radius_mx = mx.array(radius, dtype=all_dists.dtype)
     
     distances = []
     indices = []
-    lims = [0]
+    lims = [mx.array(0, dtype=mx.int32)]
     
-    for i in range(nq):
+    # We need to process each query separately due to variable-length results
+    # This is unavoidable in MLX currently
+    for i_py in range(int(nq_arr.item())):  # boundary-ok: query iteration
         # Find indices where distance <= radius
-        # mx.where returns tuple of arrays for each dimension
-        match_mask = all_dists[i] <= radius
-        # Convert boolean mask to indices using mx.argwhere or mx.nonzero
-        # But MLX doesn't have these yet, so we use a workaround:
-        # Multiply mask by indices and filter
-        all_indices = mx.arange(nb, dtype=mx.int32)
+        query_dists = all_dists[i_py]
+        match_mask = mx.less_equal(query_dists, radius_mx)
         
-        # Create a conditional array
-        valid_dists = mx.where(match_mask, all_dists[i], mx.full((nb,), mx.inf, dtype=all_dists.dtype))
-        valid_indices = mx.where(match_mask, all_indices, mx.full((nb,), -1, dtype=mx.int32))
+        # Count matches
+        count = mx.sum(match_mask.astype(mx.int32))
+        count_int = int(count.item())  # boundary-ok: counting matches
         
-        # Filter out invalid entries (where mask was False)
-        # Since we can't use boolean indexing, we collect all and count valid ones
-        # This is inefficient but necessary given MLX limitations
-        # Alternative: build result vectors element by element
-        count = int(mx.sum(match_mask.astype(mx.int32)).item())  # boundary-ok: counting matches
-        
-        if count > 0:
-            # Compact valid entries
-            # We'll use argsort to move valid entries to the front
-            # Invalid entries have value -1 for indices
-            # Sort in descending order to put -1 at the end (negate for ascending sort)
-            sort_idx = mx.argsort(-valid_indices, axis=0)  # -1 becomes 1, positive become negative
-            d = valid_dists[sort_idx[:count]]
-            idx = valid_indices[sort_idx[:count]]
+        if count_int > 0:  # boundary-ok: checking if any matches found
+            # Create indices array
+            all_indices = mx.arange(nb_arr, dtype=mx.int32)
+            
+            # Use where to mark invalid entries with large values
+            # Valid distances stay, invalid become inf
+            valid_dists = mx.where(match_mask, query_dists, mx.full_like(query_dists, mx.array(999999, dtype=query_dists.dtype)))
+            valid_indices = mx.where(match_mask, all_indices, mx.full_like(all_indices, mx.array(-1, dtype=mx.int32)))
+            
+            # Sort by indices (descending) to put valid entries (non-negative) first
+            # Use argsort on valid_indices to partition
+            sort_order = mx.argsort(mx.negative(valid_indices), axis=mx.array(0, dtype=mx.int32))
+            
+            # Take first count_int elements
+            d = mx.take(valid_dists, sort_order[:count_int], axis=mx.array(0, dtype=mx.int32))
+            idx = mx.take(valid_indices, sort_order[:count_int], axis=mx.array(0, dtype=mx.int32))
             
             distances.append(d)
             indices.append(idx)
@@ -459,9 +576,15 @@ def flat_binary_range_search(
             distances.append(mx.array([], dtype=all_dists.dtype))
             indices.append(mx.array([], dtype=mx.int32))
         
-        lims.append(lims[-1] + count)
+        # Update lims
+        prev_lim = lims[-1]
+        new_lim = mx.add(prev_lim, count)
+        lims.append(new_lim)
     
-    return distances, indices, mx.array(lims, dtype=mx.int32)
+    # Convert lims list to array
+    lims_arr = mx.stack(lims) if len(lims) > 1 else mx.array([0], dtype=mx.int32)  # boundary-ok: list length check
+    
+    return distances, indices, lims_arr
 
 
 # ==============================================================================

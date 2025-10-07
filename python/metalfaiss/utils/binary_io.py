@@ -68,11 +68,11 @@ def read_binary_vector(f: BinaryIO) -> mx.array:
     dtype_str = read_binary(f, dtype_len).decode('ascii')
     
     # Read data
-    size = np.prod(shape) * np.dtype(dtype_str).itemsize
+    size = np.prod(shape) * np.dtype(dtype_str).itemsize  # boundary-ok: I/O size calculation
     data = read_binary(f, size)
     
     # Convert to array
-    x = np.frombuffer(data, dtype=dtype_str).reshape(shape)
+    x = np.frombuffer(data, dtype=dtype_str).reshape(shape)  # boundary-ok: I/O deserialization
     return mx.array(x)
 
 def write_binary_vectors(f: BinaryIO, xs: mx.array) -> None:

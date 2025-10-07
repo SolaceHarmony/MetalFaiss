@@ -1,5 +1,8 @@
 """
 binary_transform.py - Binary vector transforms for MetalFaiss
+
+Pure MLX implementation - zero CPU operations, no NumPy.
+All random number generation and transforms execute on GPU.
 """
 
 import mlx.core as mx
@@ -74,12 +77,15 @@ class BinaryRotationTransform(BaseBinaryTransform):
         if x.shape[1] != self.d_in:
             raise ValueError(f"Training vectors dimension {x.shape[1]} != transform input dimension {self.d_in}")
             
-        # Set random seed
+        # Set random seed if provided
         if self.seed is not None:
-            np.random.seed(self.seed)
+            mx.random.seed(self.seed)
             
-        # Generate random permutation
-        self.permutation = mx.array(np.random.permutation(self.d_in))
+        # Generate random permutation using pure MLX
+        # Strategy: generate random values and argsort to get permutation
+        d_in_mx = mx.array(self.d_in, dtype=mx.int32)
+        random_vals = mx.random.uniform(shape=(self.d_in,), dtype=mx.float32)
+        self.permutation = mx.argsort(random_vals, axis=mx.array(0, dtype=mx.int32))
         self._is_trained = True
         
     def apply(self, x: mx.array) -> mx.array:
@@ -115,9 +121,20 @@ class BinaryRotationTransform(BaseBinaryTransform):
         if x.shape[1] != self.d_in:
             raise ValueError(f"Input vectors dimension {x.shape[1]} != transform input dimension {self.d_in}")
             
-        # Apply inverse permutation
-        inv_perm = mx.zeros_like(self.permutation)
-        inv_perm[self.permutation] = mx.arange(self.d_in)
+        # Build inverse permutation using pure MLX
+        # inv_perm[permutation[i]] = i
+        d_in_mx = mx.array(self.d_in, dtype=mx.int32)
+        inv_perm = mx.zeros((self.d_in,), dtype=mx.int32)
+        indices = mx.arange(self.d_in, dtype=mx.int32)
+        
+        # Scatter operation: inv_perm[self.permutation] = indices
+        # MLX doesn't have direct scatter, so we use sorting trick
+        # Create pairs (perm_value, original_index)
+        # Sort by perm_value to get inverse mapping
+        perm_indices = mx.stack([self.permutation, indices], axis=mx.array(0, dtype=mx.int32))
+        sort_order = mx.argsort(perm_indices[0], axis=mx.array(0, dtype=mx.int32))
+        inv_perm = perm_indices[1][sort_order]
+        
         return x[:, inv_perm]
         
     @property
@@ -163,24 +180,32 @@ class BinaryMatrixTransform(BaseBinaryTransform):
         if x.shape[1] != self.d_in:
             raise ValueError(f"Training vectors dimension {x.shape[1]} != transform input dimension {self.d_in}")
             
-        # Set random seed
+        # Set random seed if provided
         if self.seed is not None:
-            np.random.seed(self.seed)
+            mx.random.seed(self.seed)
             
-        # Initialize random matrix
-        self.matrix = mx.array(
-            np.random.randint(0, 2, (self.d_in, self.d_out)),
-            dtype=np.uint8
+        # Initialize random binary matrix using pure MLX
+        # Generate uniform random [0, 1) and threshold at 0.5 to get binary {0, 1}
+        random_matrix = mx.random.uniform(
+            shape=(self.d_in, self.d_out),
+            dtype=mx.float32
         )
+        half = mx.array(0.5, dtype=mx.float32)
+        self.matrix = mx.greater_equal(random_matrix, half).astype(mx.uint8)
         
         # Iterate to minimize reconstruction error
+        n_iter_mx = mx.array(self.n_iter, dtype=mx.int32)
         for _ in range(self.n_iter):
             # Forward pass
             y = self.apply(x)
             
             # Backward pass - update matrix
-            grad = mx.matmul(x.T, y)
-            self.matrix = (grad > grad.mean()).astype(np.uint8)
+            # Use float32 for gradient computation
+            x_float = x.astype(mx.float32)
+            y_float = y.astype(mx.float32)
+            grad = mx.matmul(mx.transpose(x_float, axes=[1, 0]), y_float)
+            grad_mean = mx.mean(grad)
+            self.matrix = mx.greater(grad, grad_mean).astype(mx.uint8)
             
         self._is_trained = True
         
@@ -200,8 +225,10 @@ class BinaryMatrixTransform(BaseBinaryTransform):
             raise ValueError(f"Input vectors dimension {x.shape[1]} != transform input dimension {self.d_in}")
             
         # Binary matrix multiplication
-        y = mx.matmul(x, self.matrix)
-        return (y > y.mean()).astype(np.uint8)
+        # Convert to float for matmul, then threshold
+        y = mx.matmul(x.astype(mx.float32), self.matrix.astype(mx.float32))
+        y_mean = mx.mean(y)
+        return mx.greater(y, y_mean).astype(mx.uint8)
         
     def reverse_transform(self, x: mx.array) -> mx.array:
         """Apply inverse binary matrix transform to vectors.
@@ -219,8 +246,10 @@ class BinaryMatrixTransform(BaseBinaryTransform):
             raise ValueError(f"Input vectors dimension {x.shape[1]} != transform output dimension {self.d_out}")
             
         # Binary matrix multiplication with transpose
-        y = mx.matmul(x, self.matrix.T)
-        return (y > y.mean()).astype(np.uint8)
+        # Convert to float for matmul, then threshold
+        y = mx.matmul(x.astype(mx.float32), mx.transpose(self.matrix.astype(mx.float32), axes=[1, 0]))
+        y_mean = mx.mean(y)
+        return mx.greater(y, y_mean).astype(mx.uint8)
         
     @property
     def is_trained(self) -> bool:
