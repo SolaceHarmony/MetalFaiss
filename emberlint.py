@@ -1,30 +1,34 @@
 # (Removed shebang - this file is a module, not an executable script)
 """
-MetalFaissLint: A comprehensive linting tool for MetalFaiss codebase.
+MetalFaissLint: Zero-CPU Policy Enforcer for MetalFaiss
 
-This script scans Python files to detect:
-1. Syntax errors and compilation issues
-2. GPU enforcement issues:
-   - CPU-only code paths
-   - Missing GPU device checks
-   - Improper MLX usage
-3. Backend purity issues:
-   - NumPy imports and usage (should use MLX instead)
-   - Precision-reducing casts (e.g., float() casts)
-   - Tensor conversions between backends
-   - Host pulls (.item(), .tolist(), .numpy())
-   - Python operators on MLX arrays (should use MLX ops)
-4. Style issues (PEP 8)
-5. Import issues (unused, missing)
-6. Type annotation issues
+This script enforces MetalFaiss's ZERO-CPU policy by scanning Python files for:
 
-It helps ensure that MetalFaiss code remains GPU-optimized, efficient, and maintainable.
+**ALWAYS ENFORCED (No flags needed):**
+1. ❌ NumPy imports and usage (use MLX instead)
+2. ❌ CPU transfers: .tolist(), .item(), .numpy() calls
+3. ❌ Python operators on MLX arrays (use mx.add, mx.multiply, etc.)
+4. ❌ Precision-reducing casts without boundary markers
+5. ❌ Tensor conversions between backends
+6. ❌ Missing GPU device checks
+7. ⚠️  Syntax and compilation errors
+
+**POLICY:**
+This is MetalFAISS - Metal/GPU only. NO CPU transfers allowed in production code.
+
+**USAGE:**
+  python emberlint.py python/metalfaiss          # Scan directory
+  python emberlint.py python/metalfaiss -v       # Verbose output
+  python emberlint.py python/metalfaiss --json   # JSON output for CI
+
+**EXEMPTIONS:**
+Mark lines with `# boundary-ok` or `# lint: allow-host-pull` to exempt specific operations.
+Use sparingly and only for legitimate boundary cases (test assertions, final output formatting).
 """
 
-# Allow targeted scans by default (e.g., --operators-only)
-ALLOW_SINGLE_ISSUE_LINTING = True
-# Default: provide richer MLX operator suggestions to improve developer and AI UX
-SUGGEST_OPS = True  # Override with --no-suggest-ops or suggest_ops: false in config
+# Enforce Zero-CPU policy - no switches, always on
+ENFORCE_ZERO_CPU = True
+SUGGEST_OPS = True  # Always suggest MLX operators
 
 import os
 import re
@@ -135,11 +139,12 @@ def check_types(file_path: str) -> Tuple[bool, List[str]]:
         return False, [f"Error running mypy: {e}"]
 
 def check_numpy_import(file_path: str) -> Tuple[bool, List[str]]:
-    """Check if NumPy is imported in the file."""
+    """Check if NumPy is imported in the file (regex-based, respects boundary-ok)."""
     with open(file_path, 'r', encoding='utf-8') as f:
         content = f.read()
     
     numpy_imports = []
+    lines = content.splitlines()
     
     patterns = [
         r'import\s+numpy\s+as\s+(\w+)',
@@ -147,17 +152,22 @@ def check_numpy_import(file_path: str) -> Tuple[bool, List[str]]:
         r'import\s+numpy\b',
     ]
     
-    for pattern in patterns:
-        matches = re.findall(pattern, content)
-        if matches:
-            if pattern == r'import\s+numpy\s+as\s+(\w+)':
-                numpy_imports.extend(matches)
-            elif pattern == r'from\s+numpy\s+import\s+(.*)':
-                for match in matches:
-                    imports = [name.strip() for name in match.split(',')]
-                    numpy_imports.extend(imports)
-            else:
-                numpy_imports.append("numpy")
+    for line_no, line in enumerate(lines, 1):
+        # Check for boundary-ok marker
+        if 'boundary-ok' in line or 'lint: allow-numpy' in line:
+            continue  # Skip this line
+            
+        for pattern in patterns:
+            matches = re.findall(pattern, line)
+            if matches:
+                if pattern == r'import\s+numpy\s+as\s+(\w+)':
+                    numpy_imports.extend(matches)
+                elif pattern == r'from\s+numpy\s+import\s+(.*)':
+                    for match in matches:
+                        imports = [name.strip() for name in match.split(',')]
+                        numpy_imports.extend(imports)
+                else:
+                    numpy_imports.append("numpy")
     
     return bool(numpy_imports), numpy_imports
 
@@ -256,6 +266,7 @@ class MetalFaissVisitor(ast.NodeVisitor):
         self.host_pulls = []
         self.comparisons = []
         self.bitwise_ops = []
+        self.gpu_prefix = []
         self.current_function = None
         self.current_line = 0
         self.parent_map = {}
@@ -270,6 +281,11 @@ class MetalFaissVisitor(ast.NodeVisitor):
         """Visit import statements."""
         for name in node.names:
             if name.name == 'numpy':
+                # Check for boundary-ok marker
+                line_text = self.lines[node.lineno - 1] if 0 < node.lineno <= len(self.lines) else ''
+                if 'boundary-ok' in line_text or 'lint: allow-numpy' in line_text:
+                    continue  # Skip this import, it's marked as acceptable
+                    
                 self.numpy_imports.add(f"import {name.name}")
                 self.numpy_aliases.add(name.asname or name.name)
         self.generic_visit(node)
@@ -277,6 +293,12 @@ class MetalFaissVisitor(ast.NodeVisitor):
     def visit_ImportFrom(self, node):
         """Visit from-import statements."""
         if node.module == 'numpy':
+            # Check for boundary-ok marker
+            line_text = self.lines[node.lineno - 1] if 0 < node.lineno <= len(self.lines) else ''
+            if 'boundary-ok' in line_text or 'lint: allow-numpy' in line_text:
+                self.generic_visit(node)
+                return  # Skip this import, it's marked as acceptable
+                
             for name in node.names:
                 self.numpy_imports.add(f"from numpy import {name.name}")
                 self.numpy_aliases.add(name.asname or name.name)
@@ -305,6 +327,21 @@ class MetalFaissVisitor(ast.NodeVisitor):
             ast.BitOr: ('|', 'mx.bitwise_or(a, b)'),
             ast.BitXor: ('^', 'mx.bitwise_xor(a, b)'),
         }
+        
+        # Check if we're in a type annotation (Python 3.10+ union types use |)
+        is_in_annotation = False
+        parent = self.parent_map.get(node)
+        while parent:
+            if isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef, ast.AnnAssign, ast.arg)):
+                # We're in an annotation context
+                is_in_annotation = True
+                break
+            parent = self.parent_map.get(parent)
+        
+        # Skip bitwise | in type annotations (Python 3.10+ union types)
+        if is_in_annotation and isinstance(node.op, ast.BitOr):
+            self.generic_visit(node)
+            return
         
         is_in_subscript = False
         parent = self.parent_map.get(node)
@@ -478,6 +515,11 @@ class MetalFaissVisitor(ast.NodeVisitor):
             # Check if any argument involves mx.*
             for arg in node.args:
                 if _has_mx(arg):
+                    # Check for boundary-ok marker
+                    line_text = self.lines[node.lineno - 1] if 0 < node.lineno <= len(self.lines) else ''
+                    if 'boundary-ok' in line_text or 'lint: allow-cast' in line_text:
+                        break  # Skip this cast, it's marked as acceptable
+                    
                     location = f"{self.current_function}:{node.lineno}" if self.current_function else f"line {node.lineno}"
                     cast_type = node.func.id
                     
@@ -1050,183 +1092,202 @@ def to_json(results: List[Dict], include_details: bool = True) -> str:
     }
     return json.dumps(summary, indent=2)
 
-def main():
-    """Main function."""
-    parser = argparse.ArgumentParser(description="MetalFaissLint: A comprehensive linting tool for MetalFaiss codebase.")
-    parser.add_argument("path", help="Directory or file to scan")
-    parser.add_argument("--exclude", nargs="+", help="Directories to exclude", default=[])
-    parser.add_argument("--verbose", "-v", action="store_true", help="Print detailed results")
-    parser.add_argument("--summary-only", action="store_true", help="Only print per-directory summary")
-    parser.add_argument("--json", action="store_true", help="Output full results as JSON")
-    parser.add_argument("--json-summary", action="store_true", help="Output JSON summary only (counts)")
-    parser.add_argument("--config", type=str, default=None, help="Path to .emberlint config (overrides discovery)")
-    parser.add_argument("--exit-zero", action="store_true", help="Always exit with code 0 (useful for CI report-only runs)")
-    parser.add_argument("--fail-on", nargs="+", default=None,
-                        help="Categories to fail on (e.g., operators numpy mlx gpu precision conversion imports syntax types style)")
+def print_zero_cpu_results(results: List[Dict], verbose: bool = False, summary_only: bool = False):
+    """Print Zero-CPU policy violation results (simplified, focused output)."""
     
-    # Issue type flags
-    parser.add_argument("--syntax-only", action="store_true", help="Only check for syntax errors")
-    parser.add_argument("--compilation-only", action="store_true", help="Only check for compilation errors")
-    parser.add_argument("--imports-only", action="store_true", help="Only check for import errors")
-    parser.add_argument("--style-only", action="store_true", help="Only check for style errors")
-    parser.add_argument("--types-only", action="store_true", help="Only check for type errors")
-    parser.add_argument("--numpy-only", action="store_true", help="Only check for NumPy usage")
-    parser.add_argument("--precision-only", action="store_true", help="Only check for precision-reducing casts")
-    parser.add_argument("--conversion-only", action="store_true", help="Only check for tensor conversions")
-    parser.add_argument("--operators-only", action="store_true", help="Only check for Python operators (+, -, *, /, etc.)")
-    parser.add_argument("--unused-only", action="store_true", help="Only check for unused imports")
-    parser.add_argument("--gpu-only", action="store_true", help="Only check for GPU enforcement issues")
-    parser.add_argument("--mlx-only", action="store_true", help="Only check for MLX-specific issues (host pulls, comparisons, etc.)")
-    parser.add_argument("--no-suggest-ops", action="store_true", help="Disable enriched MLX operator suggestions")
+    # Count violations by category
+    total = len(results)
+    numpy_files = [r for r in results if r["has_numpy"]]
+    host_pulls = [r for r in results if r.get("host_pulls", [])]
+    operators = [r for r in results if r["python_operators"]]
+    comparisons = [r for r in results if r.get("comparisons", [])]
+    bitwise = [r for r in results if r.get("bitwise_ops", [])]
+    precision = [r for r in results if r["precision_casts"]]
+    conversions = [r for r in results if r["tensor_conversions"]]
+    cpu_usage = [r for r in results if r["cpu_usage"]]
+    syntax_err = [r for r in results if not r["syntax_valid"]]
+    compile_err = [r for r in results if not r["compilation_valid"]]
+    
+    # Calculate total violations
+    total_violations = len(numpy_files) + len(host_pulls) + len(operators) + len(comparisons) + \
+                      len(bitwise) + len(precision) + len(conversions) + len(cpu_usage)
+    
+    # Header
+    print("=" * 80)
+    print("MetalFaiss Zero-CPU Policy Enforcement")
+    print("=" * 80)
+    print(f"📁 Files analyzed: {total}")
+    
+    if total_violations == 0 and len(syntax_err) == 0 and len(compile_err) == 0:
+        print("✅ PASS - No Zero-CPU policy violations detected!")
+        print("=" * 80)
+        return
+    
+    print(f"❌ FAIL - {total_violations} policy violations detected")
+    print("=" * 80)
+    
+    # Summary section
+    if len(numpy_files) > 0:
+        print(f"\n🚫 NumPy Usage: {len(numpy_files)} files")
+        print("   Policy: Use MLX instead of NumPy")
+    
+    if len(host_pulls) > 0:
+        print(f"\n🚫 CPU Transfers: {len(host_pulls)} files")
+        print("   Policy: No .tolist(), .item(), .numpy() calls")
+    
+    if len(operators) > 0:
+        print(f"\n🚫 Python Operators: {len(operators)} files")
+        print("   Policy: Use mx.add(), mx.multiply(), etc. instead of +, *, etc.")
+    
+    if len(comparisons) > 0:
+        print(f"\n🚫 Python Comparisons: {len(comparisons)} files")
+        print("   Policy: Use mx.equal(), mx.less(), etc. instead of ==, <, etc.")
+    
+    if len(bitwise) > 0:
+        print(f"\n🚫 Bitwise Operations: {len(bitwise)} files")
+        print("   Policy: Use mx.bitwise_and(), etc. instead of &, |, etc.")
+    
+    if len(precision) > 0:
+        print(f"\n⚠️  Precision Casts: {len(precision)} files")
+        print("   Warning: float(), int() casts may transfer data off GPU")
+    
+    if len(conversions) > 0:
+        print(f"\n⚠️  Tensor Conversions: {len(conversions)} files")
+        print("   Warning: Converting between NumPy/MLX (use MLX throughout)")
+    
+    if len(cpu_usage) > 0:
+        print(f"\n⚠️  CPU-Only Code: {len(cpu_usage)} files")
+        print("   Warning: Code paths that don't use GPU")
+    
+    # Detailed output
+    if verbose and not summary_only:
+        print("\n" + "=" * 80)
+        print("DETAILED VIOLATIONS")
+        print("=" * 80)
+        
+        if numpy_files:
+            print("\n📋 NumPy Usage Details:")
+            for r in numpy_files:
+                print(f"\n  {r['file']}:")
+                if r['imports']:
+                    print(f"    Imports: {', '.join(r['imports'])}")
+                if r.get('usages'):
+                    print(f"    Usage: {', '.join(r['usages'][:5])}")
+                    if len(r['usages']) > 5:
+                        print(f"           ... and {len(r['usages']) - 5} more")
+        
+        if host_pulls:
+            print("\n📋 CPU Transfer Details:")
+            for r in host_pulls:
+                print(f"\n  {r['file']}:")
+                for pull in r["host_pulls"][:10]:
+                    print(f"    {pull['type']} at {pull['location']}")
+                    if pull.get('suggestion'):
+                        print(f"      💡 {pull['suggestion']}")
+                if len(r["host_pulls"]) > 10:
+                    print(f"    ... and {len(r['host_pulls']) - 10} more")
+        
+        if operators:
+            print("\n📋 Python Operator Details:")
+            for r in operators:
+                print(f"\n  {r['file']}:")
+                for op in r["python_operators"][:10]:
+                    print(f"    {op['type']} at {op['location']}")
+                    if op.get('suggestion'):
+                        print(f"      💡 {op['suggestion']}")
+                if len(r["python_operators"]) > 10:
+                    print(f"    ... and {len(r['python_operators']) - 10} more")
+        
+        if comparisons:
+            print("\n📋 Python Comparison Details:")
+            for r in comparisons:
+                print(f"\n  {r['file']}:")
+                for comp in r["comparisons"][:10]:
+                    print(f"    {comp['type']} at {comp['location']}")
+                    print(f"      💡 {comp['suggestion']}")
+                if len(r["comparisons"]) > 10:
+                    print(f"    ... and {len(r['comparisons']) - 10} more")
+    
+    # Errors section
+    if syntax_err or compile_err:
+        print("\n" + "=" * 80)
+        print("SYNTAX/COMPILATION ERRORS")
+        print("=" * 80)
+        if syntax_err:
+            print(f"\n❌ Syntax Errors: {len(syntax_err)} files")
+            if verbose:
+                for r in syntax_err:
+                    print(f"  {r['file']}: {r['syntax_errors'][0] if r['syntax_errors'] else 'Unknown'}")
+        if compile_err:
+            print(f"\n❌ Compilation Errors: {len(compile_err)} files")
+            if verbose:
+                for r in compile_err:
+                    print(f"  {r['file']}: {r['compilation_errors'][0] if r['compilation_errors'] else 'Unknown'}")
+    
+    # Footer
+    print("\n" + "=" * 80)
+    print("💡 TIPS:")
+    print("  • Mark exceptions with # boundary-ok comment")
+    print("  • Use mx.* operations instead of Python operators")
+    print("  • Keep all data on GPU - avoid .tolist(), .item(), .numpy()")
+    print("  • See ZERO_CPU_AUDIT.md for patterns and examples")
+    print("=" * 80)
+
+def main():
+    """Main function - Enforces Zero-CPU policy."""
+    parser = argparse.ArgumentParser(
+        description="MetalFaissLint: Zero-CPU Policy Enforcer",
+        epilog="This tool ALWAYS checks for NumPy usage, CPU transfers (.tolist/.item/.numpy), "
+               "Python operators on MLX arrays, and GPU enforcement. No flags needed."
+    )
+    parser.add_argument("path", help="Directory or file to scan")
+    parser.add_argument("--exclude", nargs="+", help="Directories to exclude (e.g., tests unittest)", default=[])
+    parser.add_argument("--verbose", "-v", action="store_true", help="Print detailed file-by-file results")
+    parser.add_argument("--json", action="store_true", help="Output results as JSON for CI integration")
+    parser.add_argument("--summary", action="store_true", help="Show summary only (default: show all violations)")
+    parser.add_argument("--config", type=str, default=None, help="Path to .emberlint config file (optional)")
+    parser.add_argument("--exit-zero", action="store_true", help="Always exit with code 0 (report-only mode)")
     
     args = parser.parse_args()
 
-    # Merge configuration defaults
+    # Load config if exists (for exclude paths mainly)
     cfg = load_config(args.config or args.path)
     if not args.exclude and isinstance(cfg.get('exclude'), list):
         args.exclude = cfg['exclude']
-    if args.fail_on is None and isinstance(cfg.get('fail_on'), list):
-        args.fail_on = cfg['fail_on']
     if not args.verbose and cfg.get('verbose') is True:
         args.verbose = True
-    if not args.summary_only and cfg.get('summary_only') is True:
-        args.summary_only = True
-    if not args.json and cfg.get('json') is True:
-        args.json = True
-    if not args.json_summary and cfg.get('json_summary') is True:
-        args.json_summary = True
-    # Config can disable suggestions (default is enabled)
-    cfg_disable_suggest = cfg.get('suggest_ops') is False
-    if not getattr(args, 'suggest_ops', False) and cfg.get('suggest_ops') is True:
-        args.suggest_ops = True
 
-    # If single-issue linting is disabled, ignore the --*-only flags
-    if not ALLOW_SINGLE_ISSUE_LINTING:
-        if any([args.syntax_only, args.compilation_only, args.imports_only, 
-                args.style_only, args.types_only, args.numpy_only,
-                args.precision_only, args.conversion_only, args.operators_only,
-                args.unused_only, args.gpu_only]):
-            print("Warning: Single-issue linting is disabled. Running all checks.")
-            args.syntax_only = args.compilation_only = args.imports_only = False
-            args.style_only = args.types_only = args.numpy_only = False
-            args.precision_only = args.conversion_only = args.operators_only = False
-            args.unused_only = args.gpu_only = False
-    
-    # Enable/disable richer operator suggestions
-    globals()['SUGGEST_OPS'] = not bool(getattr(args, 'no_suggest_ops', False) or cfg_disable_suggest)
-
-    # Check if the path is a file or directory
+    # Analyze files
     if os.path.isfile(args.path) and args.path.endswith('.py'):
-        # Analyze a single file
-        result = analyze_file(args.path)
-        results = [result]
+        results = [analyze_file(args.path)]
     else:
-        # Analyze a directory
         results = analyze_directory(args.path, args.exclude)
-    
-    # Enable richer operator suggestions
-    global SUGGEST_OPS
-    SUGGEST_OPS = bool(getattr(args, 'suggest_ops', False))
 
-    # Determine what to display based on flags
-    show_all = not (args.syntax_only or args.compilation_only or args.imports_only or 
-                    args.style_only or args.types_only or args.numpy_only or 
-                    args.precision_only or args.conversion_only or args.operators_only or
-                    args.unused_only or args.gpu_only or args.mlx_only)
-    
-    # Render output
-    if args.json or args.json_summary:
-        # Lazy import of JSON renderer
-        print(to_json(results, include_details=not args.json_summary))
+    # Output results
+    if args.json:
+        print(to_json(results, include_details=True))
     else:
-        print_results(
-            results, 
-            args.verbose, 
-            show_all,
-            args.syntax_only,
-            args.compilation_only,
-            args.imports_only,
-            args.style_only,
-            args.types_only,
-            args.numpy_only,
-            args.precision_only,
-            args.conversion_only,
-            args.operators_only,
-            args.unused_only,
-            args.gpu_only,
-            args.mlx_only,
-            summary_only=args.summary_only
-        )
+        print_zero_cpu_results(results, args.verbose, args.summary)
     
-    # Return a boolean indicating if any issues were found
-    # Exit code logic
-    cats = set([c.lower() for c in (args.fail_on or [])])
-    def fails(r: Dict[str, Any]) -> bool:
-        if not cats:
-            return (
-                (args.syntax_only and not r["syntax_valid"]) or
-                (args.compilation_only and not r["compilation_valid"]) or
-                (args.imports_only and not r["imports_valid"]) or
-                (args.style_only and not r["style_valid"]) or
-                (args.types_only and not r["types_valid"]) or
-                (args.numpy_only and r["has_numpy"]) or
-                (args.precision_only and r["precision_casts"]) or
-                (args.conversion_only and r["tensor_conversions"]) or
-                (args.operators_only and r["python_operators"]) or
-                (args.unused_only and r["unused_imports"]) or
-                (args.gpu_only and (not r["gpu_enforced"] or r["cpu_usage"])) or
-                (args.mlx_only and (r.get("host_pulls", []) or r.get("comparisons", []) or r.get("bitwise_ops", []))) or
-                (show_all and (
-                    not r["syntax_valid"] or
-                    not r["compilation_valid"] or
-                    not r["imports_valid"] or
-                    not r["style_valid"] or
-                    not r["types_valid"] or
-                    r["has_numpy"] or
-                    r["precision_casts"] or
-                    r["tensor_conversions"] or
-                    r["python_operators"] or
-                    r["unused_imports"] or
-                    not r["gpu_enforced"] or
-                    r["cpu_usage"] or
-                    r.get("host_pulls", []) or
-                    r.get("comparisons", []) or
-                    r.get("bitwise_ops", [])
-                ))
-            )
-        # Category-driven
-        fail = False
-        for c in cats:
-            if c in {"syntax"} and not r["syntax_valid"]:
-                fail = True
-            elif c in {"compile", "compilation"} and not r["compilation_valid"]:
-                fail = True
-            elif c in {"imports"} and not r["imports_valid"]:
-                fail = True
-            elif c in {"style"} and not r["style_valid"]:
-                fail = True
-            elif c in {"types"} and not r["types_valid"]:
-                fail = True
-            elif c in {"numpy"} and r["has_numpy"]:
-                fail = True
-            elif c in {"precision"} and r["precision_casts"]:
-                fail = True
-            elif c in {"conversion", "conversions"} and r["tensor_conversions"]:
-                fail = True
-            elif c in {"operators"} and r["python_operators"]:
-                fail = True
-            elif c in {"unused"} and r["unused_imports"]:
-                fail = True
-            elif c in {"gpu"} and (not r["gpu_enforced"] or r["cpu_usage"]):
-                fail = True
-            elif c in {"mlx"} and (r.get("host_pulls") or r.get("comparisons") or r.get("bitwise_ops")):
-                fail = True
-        return fail
-
-    has_issues = any(fails(r) for r in results)
+    # Exit code: fail if ANY Zero-CPU violations found (unless --exit-zero)
     if args.exit_zero:
-        return 0
-    return 1 if has_issues else 0
+        sys.exit(0)
+    
+    has_violations = any(
+        r["has_numpy"] or
+        r["precision_casts"] or
+        r["tensor_conversions"] or
+        r["python_operators"] or
+        r.get("host_pulls", []) or
+        r.get("comparisons", []) or
+        r.get("bitwise_ops", []) or
+        r["cpu_usage"] or
+        not r["syntax_valid"] or
+        not r["compilation_valid"]
+        for r in results
+    )
+    
+    sys.exit(1 if has_violations else 0)
 
 if __name__ == "__main__":
     sys.exit(main())

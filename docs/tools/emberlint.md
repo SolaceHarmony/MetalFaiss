@@ -1,47 +1,107 @@
-Emberlint (MetalFaiss Linter)
+# Emberlint - MetalFaiss Zero-CPU Policy Enforcer
 
-Purpose
-- Enforce pure‑MLX, GPU‑first practices across the Python codebase.
-- Catch NumPy imports/usages, host pulls, Python operators on MLX arrays, precision‑reducing casts, and GPU enforcement gaps.
+## Purpose
+Enforce MetalFaiss's **ZERO-CPU policy** - all computation must stay on Apple Silicon GPU/Metal.
 
-Quick Start
-- Full scan with human‑readable output:
-  - `python emberlint.py python -v`
-- Focus on one class of issues (single‑issue filtering):
-  - `python emberlint.py python --operators-only -v`
-  - `python emberlint.py python --mlx-only -v`  # host pulls, comparisons, bitwise
-  - `python emberlint.py python --gpu-only -v`
-- JSON output (for CI):
-  - `python emberlint.py python --json > emberlint.json`
-  - Summary only: `python emberlint.py python --json-summary`
-- Per‑directory summary only:
-  - `python emberlint.py python --summary-only`
+This tool catches:
+- ❌ NumPy imports and usage (use MLX instead)
+- ❌ CPU transfers: `.tolist()`, `.item()`, `.numpy()` calls
+- ❌ Python operators on MLX arrays (use `mx.add()`, `mx.multiply()`, etc.)
+- ❌ Python comparisons on MLX (use `mx.equal()`, `mx.less()`, etc.)
+- ❌ Bitwise operations (use `mx.bitwise_and()`, etc.)
+- ⚠️  Precision-reducing casts without boundary markers
+- ⚠️  Tensor conversions between backends
 
-Exit Codes
-- Non‑zero when issues are found. Override with `--exit-zero` to always return 0 (useful for report‑only CI jobs).
-- Use `--fail-on` to constrain what counts as a failure, e.g.:
-  - `--fail-on operators mlx gpu` (ignore style/types, but fail on these categories)
+**NO FLAGS NEEDED** - All checks are always enabled.
 
-Config File
-- Place `.emberlint.json` or `.emberlint.yml` at repo root (or any ancestor of your scan path).
-- Supported keys:
-  - `exclude: ["python/metalfaiss/unittest", "build"]`
-  - `fail_on: ["operators", "mlx", "gpu"]`
-  - `verbose: true`
-  - `summary_only: true`
-  - `json: true` or `json_summary: true`
+---
 
-Examples
+## Quick Start
+
+### Basic Usage
+```bash
+# Scan directory
+python emberlint.py python/metalfaiss
+
+# Verbose output with details
+python emberlint.py python/metalfaiss -v
+
+# Summary only
+python emberlint.py python/metalfaiss --summary
+
+# JSON output for CI
+python emberlint.py python/metalfaiss --json
 ```
+
+### Common Commands
+```bash
+# Scan production code (exclude tests)
+python emberlint.py python/metalfaiss --exclude unittest tests
+
+# CI mode (always exit 0, just report)
+python emberlint.py python/metalfaiss --exit-zero
+
+# Full verbose scan
+python emberlint.py python/metalfaiss -v
+```
+
+---
+
+## Exit Codes
+- **0** - No violations found (or `--exit-zero` flag used)
+- **1** - Zero-CPU policy violations detected
+
+---
+
+## Exemptions
+
+Mark specific lines with comments to exempt them:
+```python
+# For legitimate boundary conversions (test assertions, final output)
+result = mx_array.tolist()  # boundary-ok
+
+# Alternative marker
+debug_val = mx_array.item()  # lint: allow-host-pull
+```
+
+**Use sparingly!** Only for:
+- Test assertions
+- Final output formatting for users
+- Debug/logging (temporary)
+- File I/O boundaries
+
+---
+
+## Configuration File (Optional)
+
+Create `.emberlint.json` or `.emberlint.yml` at repo root:
+
+```json
 {
-  "exclude": ["python/metalfaiss/unittest"],
-  "fail_on": ["operators", "mlx", "gpu"],
-  "summary_only": true
+  "exclude": ["python/metalfaiss/unittest", "build", "docs"],
+  "verbose": true
 }
 ```
 
-Notes
-- Type checking uses mypy when available; otherwise it’s skipped.
-- Style checks are currently disabled (placeholder for pycodestyle).
-- MLX hints suggest device‑safe replacements and boundary casts when needed.
+Supported keys:
+- `exclude`: List of paths to skip
+- `verbose`: Enable verbose output by default
+
+---
+
+## Policy Enforcement
+
+### Always Enforced
+1. **No NumPy** - Use MLX for all array operations
+2. **No CPU Transfers** - Keep data on GPU (.tolist(), .item(), .numpy() forbidden)
+3. **No Python Operators** - Use mx.add() not +, mx.multiply() not *, etc.
+4. **No Python Comparisons** - Use mx.equal() not ==, mx.less() not <, etc.
+5. **No Bitwise Python** - Use mx.bitwise_and() not &, mx.bitwise_or() not |, etc.
+
+---
+
+## See Also
+- `ZERO_CPU_AUDIT.md` - Detailed audit report with patterns
+- `docs/mlx/No-CPU-Math-Contract.md` - Policy explanation
+- `docs/mlx/ARRAYS.md` - MLX array operations guide
 

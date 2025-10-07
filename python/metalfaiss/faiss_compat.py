@@ -50,6 +50,8 @@ from .index.id_map import IDMap
 from .index.id_map2 import IDMap2
 from .index.pre_transform_index import PreTransformIndex
 from .index.refine_flat_index import RefineFlatIndex
+from .index.shards_index import IndexShards as IndexShardsImpl
+from .index.replicas_index import IndexReplicas as IndexReplicasImpl
 
 
 # ------------ Simple adapters (implemented) ------------
@@ -331,46 +333,121 @@ class IndexIVFScalarQuantizer:
 
 
 class IndexShards:
-    """FAISS‑like IndexShards (Stub).
+    """FAISS‑like IndexShards (Implemented ✅).
 
-    Intended behavior:
-      - Split add() across child shards; merge top‑k on search (device‑side merge preferred).
+    Splits vectors across multiple sub-indexes (shards) for horizontal scaling.
+    Add operations distribute in round-robin. Search merges top-k results from
+    all shards on-device.
+    
+    Backed by: metalfaiss.index.shards_index.IndexShards
     """
 
-    def __init__(self, d: int, threaded: bool = False):
-        self.d = d
-        self.threaded = threaded
-        self.children: List[object] = []
+    def __init__(self, d: int, threaded: bool = False, successive: bool = True):
+        """Initialize sharded index.
+        
+        Args:
+            d: Vector dimension
+            threaded: If True, use threading (ignored, MLX handles parallelism)
+            successive: If True, round-robin distribution
+        """
+        self._impl = IndexShardsImpl(d, threaded, successive)
+
+    @property
+    def d(self) -> int:
+        return self._impl.d
+
+    @property
+    def ntotal(self) -> int:
+        return self._impl.ntotal
 
     def add_shard(self, index) -> None:
-        self.children.append(index)
+        """Add a shard index."""
+        # Unwrap if it's a compat wrapper
+        if hasattr(index, '_impl'):
+            self._impl.add_shard(index._impl)
+        else:
+            self._impl.add_shard(index)
 
     def add(self, xs: List[List[float]]) -> None:
-        raise NotImplementedError("IndexShards.add not implemented. See PLAN.md → Shards/Replicas.")
+        """Add vectors, distributing across shards."""
+        self._impl.add(xs)
 
     def search(self, xs: List[List[float]], k: int) -> Tuple[mx.array, mx.array]:
-        raise NotImplementedError("IndexShards.search not implemented. See PLAN.md → Shards/Replicas.")
+        """Search all shards and merge top-k."""
+        result = self._impl.search(xs, k)
+        return result.distances, result.indices
+
+    def train(self, xs: List[List[float]]) -> None:
+        """Train all shards."""
+        self._impl.train(xs)
+
+    def reset(self) -> None:
+        """Reset all shards."""
+        self._impl.reset()
 
 
 class IndexReplicas:
-    """FAISS‑like IndexReplicas (Stub).
+    """FAISS‑like IndexReplicas (Implemented ✅).
 
-    Intended behavior:
-      - Mirror add() to all replicas; merge top‑k on search.
+    Mirrors vectors across multiple replica indexes for load balancing and
+    redundancy. Add operations mirror to all replicas. Search can use one
+    replica (round-robin) or merge results from all for better recall.
+    
+    Backed by: metalfaiss.index.replicas_index.IndexReplicas
     """
 
-    def __init__(self, d: int):
-        self.d = d
-        self.children: List[object] = []
+    def __init__(self, d: int, threaded: bool = False):
+        """Initialize replicated index.
+        
+        Args:
+            d: Vector dimension
+            threaded: If True, use threading (ignored, MLX handles parallelism)
+        """
+        self._impl = IndexReplicasImpl(d, threaded)
+
+    @property
+    def d(self) -> int:
+        return self._impl.d
+
+    @property
+    def ntotal(self) -> int:
+        return self._impl.ntotal
 
     def add_replica(self, index) -> None:
-        self.children.append(index)
+        """Add a replica index."""
+        # Unwrap if it's a compat wrapper
+        if hasattr(index, '_impl'):
+            self._impl.add_replica(index._impl)
+        else:
+            self._impl.add_replica(index)
 
     def add(self, xs: List[List[float]]) -> None:
-        raise NotImplementedError("IndexReplicas.add not implemented. See PLAN.md → Shards/Replicas.")
+        """Add vectors, mirroring to all replicas."""
+        self._impl.add(xs)
 
-    def search(self, xs: List[List[float]], k: int) -> Tuple[mx.array, mx.array]:
-        raise NotImplementedError("IndexReplicas.search not implemented. See PLAN.md → Shards/Replicas.")
+    def search(
+        self, 
+        xs: List[List[float]], 
+        k: int,
+        use_all_replicas: bool = False
+    ) -> Tuple[mx.array, mx.array]:
+        """Search replicas.
+        
+        Args:
+            xs: Query vectors
+            k: Number of neighbors
+            use_all_replicas: If True, search all and merge; if False, round-robin
+        """
+        result = self._impl.search(xs, k, use_all_replicas)
+        return result.distances, result.indices
+
+    def train(self, xs: List[List[float]]) -> None:
+        """Train all replicas."""
+        self._impl.train(xs)
+
+    def reset(self) -> None:
+        """Reset all replicas."""
+        self._impl.reset()
 
 
 # ------------ Utility functions ------------

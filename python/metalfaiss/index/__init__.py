@@ -8,6 +8,7 @@ This package provides various index types:
 - Product quantizer indices
 - Scalar quantizer indices
 - HNSW indices
+- Meta indices (Shards, Replicas)
 """
 
 from .flat_index import FlatIndex
@@ -21,6 +22,8 @@ from .hnsw_index import HNSWIndex
 from .id_map import IDMap, IDMap2
 from .id_selector import IDSelector, IDSelectorRange, IDSelectorBatch
 from .refine_flat_index import RefineFlatIndex
+from .shards_index import IndexShards
+from .replicas_index import IndexReplicas
 from .index_io import write_index, read_index, IOFlag
 
 __all__ = [
@@ -38,6 +41,8 @@ __all__ = [
     'IDSelectorRange',
     'IDSelectorBatch',
     'RefineFlatIndex',
+    'IndexShards',
+    'IndexReplicas',
     'write_index',
     'read_index',
     'IOFlag'

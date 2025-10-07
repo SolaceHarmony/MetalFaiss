@@ -1,0 +1,4 @@
+{
+  "exclude": ["unittest", "tests", "build", "docs", "__pycache__"],
+  "verbose": false
+}

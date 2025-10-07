@@ -46,8 +46,8 @@ class IDMap(BaseIndex):
         
     def add_with_ids(
         self,
-        xs: List[List[float]],
-        ids: List[int]
+        xs,  # Can be List[List[float]] or mx.array
+        ids  # Can be List[int] or mx.array
     ) -> None:
         """Add vectors with external IDs.
         
@@ -58,6 +58,12 @@ class IDMap(BaseIndex):
         Raises:
             ValueError: If length of xs and ids don't match
         """
+        # Convert to lists if needed
+        if hasattr(xs, 'tolist'):
+            xs = xs.tolist()
+        if hasattr(ids, 'tolist'):
+            ids = ids.tolist()
+            
         if len(xs) != len(ids):
             raise ValueError("Number of vectors and IDs must match")
             
@@ -66,7 +72,7 @@ class IDMap(BaseIndex):
         
         # Store external IDs
         self.id_map.extend(ids)
-        self._ntotal = len(self.id_map)
+        self.ntotal = len(self.id_map)
         
     def search(
         self,
