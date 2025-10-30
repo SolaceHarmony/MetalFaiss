@@ -67,9 +67,11 @@ class IVFFlatIndex(BaseIndex):
         if not xs:
             raise ValueError("Empty training data")
             
-        # Train quantizer
+        # Train quantizer (coarse centroids should be pre-built or provided)
         self._quantizer.train(xs)
+        # Mark index as trained for add/search paths
         self._is_trained = True
+        self.is_trained = True
         
     def add(self, xs: List[List[float]], ids: Optional[List[int]] = None) -> None:
         """Add vectors to the index.
@@ -86,11 +88,21 @@ class IVFFlatIndex(BaseIndex):
             raise ValueError(f"Data dimension {x.shape[1]} does not match index dimension {self.d}")
             
         # Assign vectors to lists using quantizer
-        assignments = self._quantizer.search(xs, 1)
-        for i, label in enumerate(assignments.labels):
-            self._invlists[label[0]].append((ids[i] if ids else i, x[i]))
+        # `FlatIndex.search` returns (distances, indices); accept both tuple and SearchResult
+        q_res = self._quantizer.search(xs, 1)
+        if isinstance(q_res, tuple):  # (vals, idx)
+            _, q_labels = q_res
+        else:  # legacy SearchResult with `.labels`
+            q_labels = q_res.labels  # type: ignore[attr-defined]
+
+        # Append each vector to its assigned list
+        n_new = int(x.shape[0])
+        for i in range(n_new):
+            li = int(q_labels[i, 0])
+            vid = ids[i] if ids is not None else i
+            self._invlists[li].append((vid, x[i]))
             
-        self._ntotal += len(x)
+        self.ntotal += int(x.shape[0])
         
     def search(self, xs: List[List[float]], k: int) -> SearchResult:
         """Search for nearest neighbors.
@@ -110,7 +122,8 @@ class IVFFlatIndex(BaseIndex):
             raise ValueError(f"Query dimension {x.shape[1]} does not match index dimension {self.d}")
             
         # Find nearest lists using quantizer
-        coarse_dists, coarse_labels = self._quantizer.search(xs, self.nprobe)
+        coarse = self._quantizer.search(xs, self.nprobe)
+        coarse_dists, coarse_labels = coarse if isinstance(coarse, tuple) else (coarse.distances, coarse.labels)  # type: ignore[attr-defined]
         
         # Search within selected lists
         out_vals: list[mx.array] = []
@@ -121,7 +134,8 @@ class IVFFlatIndex(BaseIndex):
 
             # Gather vectors from selected lists
             for list_id in probe_labels:
-                for vid, vec in self._invlists[list_id]:
+                li = int(list_id)
+                for vid, vec in self._invlists[li]:
                     probe_vectors.append(vec)
                     probe_ids.append(vid)
 
@@ -149,6 +163,11 @@ class IVFFlatIndex(BaseIndex):
         D = mx.stack(out_vals) if out_vals else mx.zeros((len(x), k), dtype=mx.float32)
         I = mx.stack(out_ids) if out_ids else mx.zeros((len(x), k), dtype=mx.int32)
         return SearchResult(distances=D, indices=I)
+
+    # Compatibility: expose `metric_type` like other index classes
+    @property
+    def metric_type(self) -> MetricType:
+        return self.metric
         
     def reset(self) -> None:
         """Reset the index."""

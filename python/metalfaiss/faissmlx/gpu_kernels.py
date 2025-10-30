@@ -89,12 +89,15 @@ def l2_distance_kernel(
     Returns:
         Distance matrix (n, m)
     """
-    # TODO: Add optimized implementation
-    xx = mx.sum(mx.square(x), axis=1, keepdims=True)
-    yy = mx.sum(mx.square(y), axis=1)
-    xy = mx.matmul(x, y.T)
-    xy2 = mx.add(xy, xy)
-    return mx.subtract(mx.add(xx, yy), xy2)
+    # Compute in float32 for numerical stability regardless of input dtype
+    xf = x.astype(mx.float32)
+    yf = y.astype(mx.float32)
+    xx = mx.sum(mx.square(xf), axis=1, keepdims=True)
+    yy = mx.sum(mx.square(yf), axis=1, keepdims=True)
+    dot = mx.matmul(xf, mx.transpose(yf))
+    D = mx.subtract(mx.add(xx, mx.transpose(yy)), mx.add(dot, dot))
+    # Clamp small negative due to roundoff
+    return mx.maximum(D, mx.zeros_like(D))
 
 def cosine_distance_kernel(
     x: mx.array,
@@ -113,14 +116,18 @@ def cosine_distance_kernel(
     Returns:
         Distance matrix (n, m)
     """
-    # TODO: Add optimized implementation
-    x_norm = mx.sqrt(mx.sum(mx.square(x), axis=1, keepdims=True))
-    y_norm = mx.sqrt(mx.sum(mx.square(y), axis=1, keepdims=True))
-    x = mx.divide(x, x_norm)
-    y = mx.divide(y, y_norm)
-    dot = mx.matmul(x, y.T)
-    ones = mx.ones_like(dot)
-    return mx.subtract(ones, dot)
+    # Compute with epsilon to avoid division by zero and clamp dot to [-1, 1]
+    xf = x.astype(mx.float32)
+    yf = y.astype(mx.float32)
+    eps = mx.array(1e-12, dtype=mx.float32)
+    x_norm = mx.sqrt(mx.sum(mx.square(xf), axis=1, keepdims=True))
+    y_norm = mx.sqrt(mx.sum(mx.square(yf), axis=1, keepdims=True))
+    xn = mx.divide(xf, mx.maximum(x_norm, eps))
+    yn = mx.divide(yf, mx.maximum(y_norm, eps))
+    dot = mx.matmul(xn, mx.transpose(yn))
+    # Clamp for numeric drift beyond [-1, 1]
+    dot = mx.minimum(mx.maximum(dot, mx.array(-1.0, dtype=dot.dtype)), mx.array(1.0, dtype=dot.dtype))
+    return mx.subtract(mx.ones_like(dot), dot)
 
 def hamming_distance_kernel(
     x: mx.array,
